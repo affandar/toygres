@@ -1,0 +1,47 @@
+[package]
+name = "toygres-orchestrations"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+toygres-models = { path = "../toygres-models" }
+
+# Duroxide framework
+duroxide = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true }
+
+# Kubernetes
+kube = { workspace = true }
+k8s-openapi = { workspace = true }
+
+# Database
+sqlx = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = "0.9"
+
+# Templating
+tera = "1.19"
+
+# PostgreSQL client
+tokio-postgres = "0.7"
+
+# Error handling
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# UUID
+uuid = { workspace = true }
+
+# Time
+chrono = { workspace = true }
+

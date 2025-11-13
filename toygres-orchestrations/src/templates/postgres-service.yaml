@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ name }}-svc
+  namespace: {{ namespace }}
+  labels:
+    app: postgres
+    instance: {{ name }}
+  annotations:
+    # Azure DNS label name (creates: <label>.<region>.cloudapp.azure.com)
+    service.beta.kubernetes.io/azure-dns-label-name: "{{ dns_label }}"
+spec:
+  type: {{ service_type }}
+  selector:
+    app: postgres
+    instance: {{ name }}
+  ports:
+  - port: 5432
+    targetPort: 5432
+    name: postgres
+

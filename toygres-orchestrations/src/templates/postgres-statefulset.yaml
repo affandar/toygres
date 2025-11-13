@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ name }}
+  namespace: {{ namespace }}
+  labels:
+    app: postgres
+    instance: {{ name }}
+spec:
+  replicas: 1
+  serviceName: {{ name }}
+  selector:
+    matchLabels:
+      app: postgres
+      instance: {{ name }}
+  template:
+    metadata:
+      labels:
+        app: postgres
+        instance: {{ name }}
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:{{ postgres_version }}
+        ports:
+        - containerPort: 5432
+          name: postgres
+        env:
+        - name: POSTGRES_PASSWORD
+          value: "{{ password }}"
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_DB
+          value: postgres
+        - name: PGDATA
+          value: /var/lib/postgresql/data/pgdata
+        volumeMounts:
+        - name: postgres-storage
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-storage
+        persistentVolumeClaim:
+          claimName: {{ name }}-pvc
+

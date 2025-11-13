@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ name }}-pvc
+  namespace: {{ namespace }}
+  labels:
+    app: postgres
+    instance: {{ name }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ storage_size }}Gi
+  # storageClassName not specified - will use cluster's default storage class
+  # (AKS: "default", kind: "standard")
+
