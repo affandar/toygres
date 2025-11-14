@@ -104,23 +104,34 @@ Use the provided infrastructure setup script:
    AKS_RESOURCE_GROUP=your-resource-group
    ```
 
-   **Optional (for DNS support):**
-   ```bash
-   DNS_LABEL=toygres
-   ```
-
-   **Optional (for examples/testing):**
+   **Optional (for examples/testing with manual_deploy):**
    ```bash
    INSTANCE_NAME=my-test-pg
    POSTGRES_PASSWORD=your-secure-password
    USE_LOAD_BALANCER=true
    ```
 
-3. **Set up metadata database** (when ready to use control plane):
+3. **Set up metadata database** (⚠️ **REQUIRED** before running toygres-server):
    ```bash
    ./scripts/db-init.sh
    ./scripts/db-migrate.sh   # (no-op until we add 0002+ migrations)
    ```
+   
+   This creates the `toygres_cms` schema and all required tables. The server will verify tables exist on startup and fail with a clear error if this step is skipped.
+
+4. **Verify kubectl connection** (required before running toygres-server):
+   ```bash
+   # Get AKS credentials (use values from your .env)
+   az aks get-credentials --resource-group <your-rg> --name <your-cluster> --overwrite-existing
+   
+   # Verify connection works
+   kubectl cluster-info
+   
+   # Verify namespace exists
+   kubectl get namespace toygres
+   ```
+   
+   **⚠️ Important:** The toygres-server requires kubectl to be configured to access your AKS cluster. If you see errors like `"Failed to create K8s client"`, ensure you've run the `az aks get-credentials` command above.
 
 ### Test Deployment
 
@@ -142,12 +153,25 @@ cargo run --example manual_deploy
 
 ### Build and Run Control Plane
 
+**Prerequisites:** Ensure kubectl is configured (see step 4 above) and database is initialized (step 3).
+
 ```bash
 # Build all crates
 cargo build --workspace
 
-# Run the control plane server (coming soon)
-cargo run --bin toygres-server
+# Create a PostgreSQL instance
+# The name you provide becomes the DNS name: <name>.<region>.cloudapp.azure.com
+cargo run --bin toygres-server -- create adardb1 --password mySecurePass123
+
+# Delete an instance (use the same DNS name you used to create it)
+cargo run --bin toygres-server -- delete adardb1
+
+# Expected output for create:
+# ✓ PostgreSQL instance created successfully!
+# ✓ User name: adardb1
+# ✓ K8s instance: adardb1-a1b2c3d4
+# ✓ DNS: adardb1.westus3.cloudapp.azure.com
+# ✓ Connection strings and deployment details
 ```
 
 ## Project Structure
@@ -215,8 +239,11 @@ cargo run --example manual_deploy
 The deployment tool outputs connection strings:
 
 ```bash
-# Via DNS (recommended)
-psql 'postgresql://postgres:password@mydb-toygres.westus3.cloudapp.azure.com:5432/postgres'
+# Via DNS (recommended) - when using toygres-server
+psql 'postgresql://postgres:password@adardb1.westus3.cloudapp.azure.com:5432/postgres'
+
+# Via DNS - when using manual_deploy example (with DNS_LABEL=toygres)
+psql 'postgresql://postgres:password@mytest-toygres.westus3.cloudapp.azure.com:5432/postgres'
 
 # Via IP
 psql 'postgresql://postgres:password@4.249.xxx.xxx:5432/postgres'
@@ -274,15 +301,25 @@ AKS_NAMESPACE=toygres ./scripts/cleanup-deployments.sh
 
 ## Troubleshooting
 
-### Can't connect to AKS
+### Can't connect to AKS / "Failed to create K8s client"
 
+**Symptoms:**
+- Error: `Failed to create K8s client: Failed to create Kubernetes client`
+- kubectl shows: `The connection to the server localhost:8080 was refused`
+- Activity failures in duroxide logs
+
+**Solution:**
 ```bash
-# Get credentials
+# Get credentials (use your actual resource group and cluster name from .env)
 az aks get-credentials --resource-group <rg> --name <cluster> --overwrite-existing
 
-# Verify
+# Verify connection works
 kubectl cluster-info
+
+# Should show: Kubernetes control plane is running at https://...
 ```
+
+**Root Cause:** The Kubernetes client (`kube-rs`) requires kubectl to be configured with valid cluster credentials in `~/.kube/config`. Without this, it defaults to `localhost:8080` and fails.
 
 ### Deployment fails
 

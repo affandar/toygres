@@ -1,5 +1,7 @@
 # TODOs for Toygres
 
+
+- Just check all the fields in instance like k8s name etc are being used properly
 - Issues
     - Load balancer wait activity, dupes run because the message times out!!
     - Why is LB IP not working??

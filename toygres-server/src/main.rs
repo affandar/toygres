@@ -1,6 +1,6 @@
 use anyhow::Result;
 use clap::{Parser, Subcommand};
-use duroxide::runtime::Runtime;
+use duroxide::runtime::{Runtime, RuntimeOptions};
 use duroxide::Client;
 use duroxide_pg::PostgresProvider;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ struct Args {
 enum Commands {
     /// Create a new PostgreSQL instance
     Create {
-        /// DNS name for the instance (e.g., "mydb" creates mydb-<DNS_LABEL>.<region>.cloudapp.azure.com)
+        /// DNS name for the instance (e.g., "mydb" creates mydb.<region>.cloudapp.azure.com)
         name: String,
         
         /// PostgreSQL password
@@ -52,7 +52,7 @@ enum Commands {
     
     /// Delete a PostgreSQL instance
     Delete {
-        /// Instance name to delete
+        /// DNS name of the instance to delete (e.g., "adardb5")
         name: String,
         
         /// Kubernetes namespace (default: "toygres")
@@ -107,16 +107,30 @@ async fn main() -> Result<()> {
     store.initialize_schema().await
         .map_err(|e| anyhow::anyhow!("Failed to initialize Duroxide schema: {}", e))?;
     
+    // Initialize CMS schema and verify tables if using PostgreSQL
+    if !db_url.starts_with("sqlite") {
+        tracing::info!("Initializing CMS schema");
+        initialize_cms_schema(&db_url).await?;
+        verify_cms_tables(&db_url).await?;
+    }
+    
     // Create activity and orchestration registries
     let activities = Arc::new(create_activity_registry());
     let orchestrations = create_orchestration_registry();
     
+    // Configure runtime options
+    let mut runtime_options = RuntimeOptions::default();
+    // Set activity execution timeout to 5 minutes
+    // worker_lock_timeout_secs controls how long an activity can run before timing out
+    runtime_options.worker_lock_timeout_secs = 300; // 5 minutes
+    
     // Start Duroxide runtime
-    tracing::info!("Starting Duroxide runtime");
-    let runtime = Runtime::start_with_store(
+    tracing::info!("Starting Duroxide runtime with 5-minute activity timeout");
+    let runtime = Runtime::start_with_options(
         store.clone(),
         activities,
         orchestrations,
+        runtime_options,
     )
     .await;
     
@@ -156,10 +170,9 @@ async fn handle_create(
     
     tracing::info!("Creating PostgreSQL instance: {} (K8s name: {})", name, unique_instance_name);
     
-    // Get DNS label from env if available
-    let dns_label = std::env::var("DNS_LABEL").ok().map(|base| {
-        format!("{}-{}", name, base)
-    });
+    // Use the user-provided name directly as the DNS label
+    // This creates DNS names like: <name>.<region>.cloudapp.azure.com
+    let dns_label = Some(name.clone());
     
     let instance_id = format!("create-{}", unique_instance_name);
     
@@ -231,15 +244,26 @@ async fn handle_delete(
     name: String,
     namespace: Option<String>,
 ) -> Result<()> {
-    // Note: User provides the K8s instance name (with GUID suffix)
-    // In Phase 3 with metadata DB, we'll look up by user-friendly name
     tracing::info!("Deleting PostgreSQL instance: {}", name);
     
-    let instance_id = format!("delete-{}", name);
+    // Look up the K8s name by user_name in the CMS database
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite::memory:".to_string());
     
-    // Build input
+    let k8s_name = if !db_url.starts_with("sqlite") {
+        lookup_k8s_name_by_user_name(&db_url, &name).await?
+    } else {
+        // For SQLite testing, assume name is the k8s_name
+        name.clone()
+    };
+    
+    tracing::info!("Resolved to K8s instance: {}", k8s_name);
+    
+    let instance_id = format!("delete-{}", k8s_name);
+    
+    // Build input (use k8s_name for deletion)
     let input = DeleteInstanceInput {
-        name: name.clone(),
+        name: k8s_name.clone(),
         namespace,
         orchestration_id: instance_id.clone(),
     };
@@ -282,5 +306,98 @@ async fn handle_delete(
     }
     
     Ok(())
+}
+
+async fn initialize_cms_schema(db_url: &str) -> Result<()> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    
+    // Connect to database
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(db_url)
+        .await
+        .context("Failed to connect to database for CMS schema initialization")?;
+    
+    // Create schema if it doesn't exist
+    sqlx::query("CREATE SCHEMA IF NOT EXISTS toygres_cms")
+        .execute(&pool)
+        .await
+        .context("Failed to create toygres_cms schema")?;
+    
+    tracing::info!("✓ CMS schema ready");
+    
+    Ok(())
+}
+
+async fn verify_cms_tables(db_url: &str) -> Result<()> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    
+    // Connect to database
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(db_url)
+        .await
+        .context("Failed to connect to database for CMS table verification")?;
+    
+    // Check if the instances table exists
+    let result: Option<(bool,)> = sqlx::query_as(
+        "SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'toygres_cms' 
+            AND table_name = 'instances'
+        )"
+    )
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to check if CMS tables exist")?;
+    
+    match result {
+        Some((true,)) => {
+            tracing::info!("✓ CMS tables verified");
+            Ok(())
+        }
+        _ => {
+            anyhow::bail!(
+                "CMS tables not found. Please run: ./scripts/db-init.sh\n\
+                 This will create the required tables in the toygres_cms schema."
+            )
+        }
+    }
+}
+
+async fn lookup_k8s_name_by_user_name(db_url: &str, dns_name: &str) -> Result<String> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    
+    // Connect to database
+    let pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect(db_url)
+        .await
+        .context("Failed to connect to database for instance lookup")?;
+    
+    // Look up the k8s_name by dns_name
+    let result: Option<(String,)> = sqlx::query_as(
+        "SELECT k8s_name FROM toygres_cms.instances 
+         WHERE dns_name = $1 
+         AND state != 'deleted'
+         ORDER BY created_at DESC 
+         LIMIT 1"
+    )
+    .bind(dns_name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to look up instance by DNS name")?;
+    
+    match result {
+        Some((k8s_name,)) => Ok(k8s_name),
+        None => anyhow::bail!(
+            "Instance with DNS name '{}' not found in database. \n\
+             Note: Use the DNS name you provided during creation (e.g., 'adardb5'), not the K8s name with GUID suffix.",
+            dns_name
+        ),
+    }
 }
 
