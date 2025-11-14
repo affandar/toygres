@@ -58,6 +58,22 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::TEST_CONNECTION,
             crate::activities::test_connection::test_connection_activity,
         )
+        .register_typed(
+            activities::cms::CREATE_INSTANCE_RECORD,
+            crate::activities::cms::create_instance_record::create_instance_record_activity,
+        )
+        .register_typed(
+            activities::cms::UPDATE_INSTANCE_STATE,
+            crate::activities::cms::update_instance_state::update_instance_state_activity,
+        )
+        .register_typed(
+            activities::cms::FREE_DNS_NAME,
+            crate::activities::cms::free_dns_name::free_dns_name_activity,
+        )
+        .register_typed(
+            activities::cms::GET_INSTANCE_BY_K8S_NAME,
+            crate::activities::cms::get_instance_by_k8s_name::get_instance_by_k8s_name_activity,
+        )
         .build()
 }
 

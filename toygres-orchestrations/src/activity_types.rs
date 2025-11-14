@@ -1,6 +1,7 @@
 //! Input and output types for Toygres activities
 
 use serde::{Deserialize, Serialize};
+use uuid::Uuid;
 
 // ============================================================================
 // Deploy PostgreSQL Activity
@@ -120,5 +121,74 @@ pub struct TestConnectionOutput {
     pub version: String,
     /// Whether connection succeeded
     pub connected: bool,
+}
+
+// ============================================================================
+// CMS Activities
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CreateInstanceRecordInput {
+    pub user_name: String,
+    pub k8s_name: String,
+    pub namespace: String,
+    pub postgres_version: String,
+    pub storage_size_gb: i32,
+    pub use_load_balancer: bool,
+    pub dns_name: Option<String>,
+    pub orchestration_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CreateInstanceRecordOutput {
+    pub instance_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateInstanceStateInput {
+    pub k8s_name: String,
+    pub state: String,
+    pub ip_connection_string: Option<String>,
+    pub dns_connection_string: Option<String>,
+    pub external_ip: Option<String>,
+    pub delete_orchestration_id: Option<String>,
+    pub message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateInstanceStateOutput {
+    pub updated: bool,
+    pub previous_state: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FreeDnsNameInput {
+    pub k8s_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct FreeDnsNameOutput {
+    pub freed: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetInstanceByK8sNameInput {
+    pub k8s_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CmsInstanceRecord {
+    pub id: Uuid,
+    pub user_name: String,
+    pub k8s_name: String,
+    pub namespace: String,
+    pub state: String,
+    pub dns_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetInstanceByK8sNameOutput {
+    pub found: bool,
+    pub record: Option<CmsInstanceRecord>,
 }
 

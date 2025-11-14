@@ -26,7 +26,8 @@ The project is organized as a Cargo workspace with the following crates:
 Create the following scripts to help with infrastructure setup:
 
 - **`scripts/setup-infra.sh`**: Terraform/Azure CLI script to provision AKS cluster, networking, storage classes
-- **`scripts/setup-db.sh`**: SQL migration script to create metadata database schema (instances table, operations log, health status)
+- **`scripts/db-init.sh`**: Applies the initial CMS migration and prepares the Duroxide schema
+- **`scripts/db-migrate.sh`**: Runs incremental CMS migrations (none yet, but keeps the pattern consistent with `duroxide-pg`)
 
 ### Environment Configuration
 
@@ -295,7 +296,7 @@ CREATE INDEX idx_instances_health_status ON instances(health_status);
 **Goal**: Store instance state before adding workflows
 
 **Tasks**:
-1. Run `scripts/setup-db.sh` to create schema
+1. Run `scripts/db-init.sh` (and `scripts/db-migrate.sh`) to create schema
 2. Create `toygres-server/src/db.rs` module:
    - `insert_instance(metadata) -> Result<Uuid>`
    - `update_instance_state(id, state) -> Result<()>`

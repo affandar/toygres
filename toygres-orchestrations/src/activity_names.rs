@@ -57,5 +57,20 @@ pub mod activities {
     /// - Runs SELECT version() query
     /// - Returns version string
     pub const TEST_CONNECTION: &str = "toygres-activities::activity::test-connection";
+
+    /// CMS-related activities
+    pub mod cms {
+        /// Create CMS record and reserve DNS name
+        pub const CREATE_INSTANCE_RECORD: &str = "toygres-orchestrations::activity::cms-create-instance-record";
+
+        /// Update CMS instance state/connection info
+        pub const UPDATE_INSTANCE_STATE: &str = "toygres-orchestrations::activity::cms-update-instance-state";
+
+        /// Free DNS name by prefixing with __deleted_
+        pub const FREE_DNS_NAME: &str = "toygres-orchestrations::activity::cms-free-dns-name";
+
+        /// Fetch CMS instance by Kubernetes name
+        pub const GET_INSTANCE_BY_K8S_NAME: &str = "toygres-orchestrations::activity::cms-get-instance-by-k8s-name";
+    }
 }
 

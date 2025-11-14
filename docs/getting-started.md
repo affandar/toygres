@@ -15,7 +15,8 @@ toygres/
 │   └── getting-started.md        # This file
 ├── scripts/
 │   ├── setup-infra.sh           # Azure infrastructure setup script
-│   └── setup-db.sh              # Database schema setup script
+│   ├── db-init.sh               # Applies initial CMS migration
+│   └── db-migrate.sh            # Applies incremental CMS migrations
 ├── toygres-models/              # Shared data structures
 │   ├── Cargo.toml
 │   └── src/
@@ -90,14 +91,14 @@ The script will prompt you for configuration values and output the settings to a
 
 ### 4. Database Setup
 
-Set up the metadata database schema:
+Set up the metadata database schema (and prepare for future migrations):
 
 ```bash
-# This will create:
-#   - Custom types (instance_state, health_status)
-#   - instances table
-#   - Indexes and triggers
-./scripts/setup-db.sh
+# Apply the initial CMS schema + create migration tracking table
+./scripts/db-init.sh
+
+# Apply incremental migrations (currently a no-op, but keep the pattern)
+./scripts/db-migrate.sh
 ```
 
 ### 5. Build and Run

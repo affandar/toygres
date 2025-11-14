@@ -22,21 +22,59 @@ Creates the foundational Azure infrastructure for Toygres.
 
 The script will prompt you for configuration values.
 
-### setup-db.sh
+### db-init.sh
 
-Sets up the metadata PostgreSQL database schema.
+Applies the initial migration for the CMS schema (version `0001`) and prepares
+the Duroxide schema.
 
 **What it does:**
-- Creates custom types (instance_state, health_status)
-- Creates instances table
-- Creates indexes and triggers
+- Ensures the `toygres_cms` schema exists
+- Applies `migrations/cms/0001_initial_schema.sql` exactly once
+- Creates the migration tracking table (`toygres_cms._toygres_migrations`)
+- Cascades into `db-migrate.sh` so any newer migrations run automatically
 
 **Usage:**
 ```bash
-./scripts/setup-db.sh
+./scripts/db-init.sh
 ```
 
-Requires `DATABASE_URL` in `.env` file.
+Requires `DATABASE_URL` in `.env`.  
+`scripts/setup-db.sh` remains as a backward-compatible wrapper.
+
+### db-migrate.sh
+
+Applies any migrations numbered `0002` and above (none yet, but ready).
+
+```bash
+./scripts/db-migrate.sh
+```
+
+Migrations are stored in `migrations/cms/` and tracked in
+`toygres_cms._toygres_migrations`.
+
+### drop-duroxide-schema.sh
+
+Drops the `toygres_duroxide` schema (all orchestration state). Prompts for confirmation.
+
+```bash
+./scripts/drop-duroxide-schema.sh
+```
+
+### drop-cms-schema.sh
+
+Drops the `toygres_cms` schema (all Toygres metadata). Prompts for confirmation.
+
+```bash
+./scripts/drop-cms-schema.sh
+```
+
+### drop-all-schemas.sh
+
+Drops both schemas in one shot. **Destructive** – wipes orchestrations and CMS data.
+
+```bash
+./scripts/drop-all-schemas.sh
+```
 
 ## Deployment Management Scripts
 
@@ -115,7 +153,13 @@ All scripts respect environment variables from `.env`:
 ./scripts/setup-infra.sh
 
 # Set up metadata database
-./scripts/setup-db.sh
+./scripts/db-init.sh     # (setup-db.sh still works as a wrapper)
+./scripts/db-migrate.sh  # Apply future migrations
+
+# Drop schemas (danger!)
+./scripts/drop-cms-schema.sh
+./scripts/drop-duroxide-schema.sh
+./scripts/drop-all-schemas.sh
 ```
 
 ## Examples

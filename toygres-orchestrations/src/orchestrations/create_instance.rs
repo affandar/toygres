@@ -6,43 +6,71 @@ use crate::types::{CreateInstanceInput, CreateInstanceOutput, DeleteInstanceInpu
 use crate::activity_names::activities;
 use crate::activity_types::{
     DeployPostgresInput, DeployPostgresOutput,
-    DeletePostgresInput, DeletePostgresOutput,
     WaitForReadyInput, WaitForReadyOutput,
     GetConnectionStringsInput, GetConnectionStringsOutput,
     TestConnectionInput, TestConnectionOutput,
+    CreateInstanceRecordInput, CreateInstanceRecordOutput,
+    UpdateInstanceStateInput, UpdateInstanceStateOutput,
+    FreeDnsNameInput, FreeDnsNameOutput,
 };
 
 pub async fn create_instance_orchestration(
     ctx: OrchestrationContext,
     input: CreateInstanceInput,
 ) -> Result<CreateInstanceOutput, String> {
-    ctx.trace_info(format!("Creating PostgreSQL instance: {}", input.name));
+    ctx.trace_info(format!(
+        "Creating PostgreSQL instance: {} (user: {}, orchestration: {})",
+        input.name, input.user_name, input.orchestration_id
+    ));
     
     let namespace = input.namespace.clone().unwrap_or_else(|| "toygres".to_string());
     let postgres_version = input.postgres_version.clone().unwrap_or_else(|| "18".to_string());
     let storage_size_gb = input.storage_size_gb.unwrap_or(10);
     let use_load_balancer = input.use_load_balancer.unwrap_or(true);
     
-    // Execute orchestration with error handling and cleanup
+    // Reserve CMS record + DNS name
+    let cms_input = CreateInstanceRecordInput {
+        user_name: input.user_name.clone(),
+        k8s_name: input.name.clone(),
+        namespace: namespace.clone(),
+        postgres_version: postgres_version.clone(),
+        storage_size_gb,
+        use_load_balancer,
+        dns_name: input.dns_label.clone(),
+        orchestration_id: input.orchestration_id.clone(),
+    };
+    
+    ctx.schedule_activity_typed::<CreateInstanceRecordInput, CreateInstanceRecordOutput>(
+            activities::cms::CREATE_INSTANCE_RECORD,
+            &cms_input,
+        )
+        .into_activity_typed::<CreateInstanceRecordOutput>()
+        .await?;
+    
     match create_instance_impl(&ctx, &input, &namespace, &postgres_version, storage_size_gb, use_load_balancer).await {
         Ok(output) => {
             ctx.trace_info("Instance created successfully");
+            let update_input = UpdateInstanceStateInput {
+                k8s_name: input.name.clone(),
+                state: "running".to_string(),
+                ip_connection_string: Some(output.ip_connection_string.clone()),
+                dns_connection_string: output.dns_connection_string.clone(),
+                external_ip: output.external_ip.clone(),
+                delete_orchestration_id: None,
+                message: Some(format!("Instance ready in {} seconds", output.deployment_time_seconds)),
+            };
+            update_cms_state(&ctx, update_input).await;
             Ok(output)
         }
         Err(e) => {
             ctx.trace_error(format!("Failed to create instance: {}", e));
+            mark_instance_failed(&ctx, &input.name, &e).await;
             ctx.trace_info("Cleaning up partial deployment");
             
-            // Cleanup: delete any resources that were created
-            let cleanup_result = cleanup_on_failure(&ctx, &namespace, &input.name).await;
-            
-            match cleanup_result {
-                Ok(_) => {
-                    ctx.trace_info("Cleanup complete, system restored to original state");
-                }
-                Err(cleanup_err) => {
-                    ctx.trace_warn(format!("Cleanup failed: {}", cleanup_err));
-                }
+            if let Err(cleanup_err) = cleanup_on_failure(&ctx, &namespace, &input.name).await {
+                ctx.trace_warn(format!("Cleanup failed: {}", cleanup_err));
+            } else {
+                ctx.trace_info("Cleanup complete, system restored to original state");
             }
             
             Err(e)
@@ -182,6 +210,7 @@ async fn cleanup_on_failure(
     let delete_input = DeleteInstanceInput {
         name: instance_name.to_string(),
         namespace: Some(namespace.to_string()),
+        orchestration_id: format!("cleanup-{}", instance_name),
     };
     
     let delete_output = ctx
@@ -202,6 +231,52 @@ async fn cleanup_on_failure(
     Ok(())
 }
 
+async fn update_cms_state(
+    ctx: &OrchestrationContext,
+    update_input: UpdateInstanceStateInput,
+) {
+    if let Err(err) = ctx
+        .schedule_activity_typed::<UpdateInstanceStateInput, UpdateInstanceStateOutput>(
+            activities::cms::UPDATE_INSTANCE_STATE,
+            &update_input,
+        )
+        .into_activity_typed::<UpdateInstanceStateOutput>()
+        .await
+    {
+        ctx.trace_warn(format!("Failed to update CMS state: {}", err));
+    }
+}
+
+async fn mark_instance_failed(
+    ctx: &OrchestrationContext,
+    k8s_name: &str,
+    error: &str,
+) {
+    let update_input = UpdateInstanceStateInput {
+        k8s_name: k8s_name.to_string(),
+        state: "failed".to_string(),
+        ip_connection_string: None,
+        dns_connection_string: None,
+        external_ip: None,
+        delete_orchestration_id: None,
+        message: Some(error.to_string()),
+    };
+    update_cms_state(ctx, update_input).await;
+
+    if let Err(err) = ctx
+        .schedule_activity_typed::<FreeDnsNameInput, FreeDnsNameOutput>(
+            activities::cms::FREE_DNS_NAME,
+            &FreeDnsNameInput {
+                k8s_name: k8s_name.to_string(),
+            },
+        )
+        .into_activity_typed::<FreeDnsNameOutput>()
+        .await
+    {
+        ctx.trace_warn(format!("Failed to free DNS name: {}", err));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -209,6 +284,7 @@ mod tests {
     #[test]
     fn test_create_instance_input_serialization() {
         let input = CreateInstanceInput {
+            user_name: "test".to_string(),
             name: "test-pg".to_string(),
             password: "pass123".to_string(),
             postgres_version: Some("18".to_string()),
@@ -216,6 +292,7 @@ mod tests {
             use_load_balancer: Some(true),
             dns_label: Some("test".to_string()),
             namespace: Some("toygres".to_string()),
+            orchestration_id: "create-test".to_string(),
         };
         
         let json = serde_json::to_string(&input).unwrap();

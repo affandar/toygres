@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct CreateInstanceInput {
+    /// User-friendly instance name (without GUID suffix)
+    pub user_name: String,
     /// Instance name
     pub name: String,
     /// PostgreSQL password
@@ -22,6 +24,8 @@ pub struct CreateInstanceInput {
     pub dns_label: Option<String>,
     /// Kubernetes namespace (default: "toygres")
     pub namespace: Option<String>,
+    /// Unique orchestration/request identifier
+    pub orchestration_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -54,6 +58,8 @@ pub struct DeleteInstanceInput {
     pub name: String,
     /// Kubernetes namespace (default: "toygres")
     pub namespace: Option<String>,
+    /// Orchestration/request identifier
+    pub orchestration_id: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

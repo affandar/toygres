@@ -1200,33 +1200,37 @@ async fn get_instance(name: String) -> Json<InstanceRecord> {
 
 ---
 
-## Schema Migration Script
+## Schema Migration Scripts
 
-Update `scripts/setup-db.sh`:
+Follow the same pattern as `duroxide-pg`:
 
-```bash
-#!/bin/bash
+- Place migrations under `migrations/cms/` using numbered files
+  (`0001_initial_schema.sql`, `0002_add_column.sql`, …).
+- Track applied migrations in `toygres_cms._toygres_migrations`.
+- Provide scripts for initial provisioning and incremental migrations.
 
-# Create schemas
-CREATE SCHEMA IF NOT EXISTS toygres_duroxide;  # Duroxide state
-CREATE SCHEMA IF NOT EXISTS toygres_cms;       # Application metadata
+### `scripts/db-init.sh`
 
-# Create CMS tables
--- instances table
--- instance_events table
--- instance_health_checks table
+- Loads `.env`, ensures `DATABASE_URL` is present.
+- Creates the `toygres_cms` schema plus the `_toygres_migrations` tracking table.
+- Applies `migrations/cms/0001_initial_schema.sql` exactly once.
+- Delegates to `scripts/db-migrate.sh` (so new migrations run automatically on fresh installs).
+- `scripts/setup-db.sh` remains as a thin wrapper for backwards compatibility.
 
-# Duroxide tables created automatically by duroxide-pg
-```
+### `scripts/db-migrate.sh`
+
+- Loads `.env` and ensures the tracking table exists.
+- Applies any migration numbered `0002` or greater that has not been recorded yet.
+- Logs when there are no pending migrations (current state).
 
 ---
 
 ## Implementation Order
 
 ### Phase 3.1: Database Schema
-1. Update `setup-db.sh` with CMS schema
-2. Create migration script
-3. Test schema creation
+1. Add `migrations/cms/0001_initial_schema.sql`
+2. Implement `scripts/db-init.sh` (plus `scripts/db-migrate.sh`)
+3. Test schema creation via `./scripts/db-init.sh`
 
 ### Phase 3.2: CMS Activities
 1. Implement 5 CMS activities
@@ -1366,7 +1370,7 @@ async fn test_create_instance_with_cms() {
 ## Next Steps
 
 1. Review this plan and answer questions
-2. Update `setup-db.sh` with CMS schema
+2. Finalize migration scripts (`db-init.sh`, `db-migrate.sh`)
 3. Implement CMS activities
 4. Update orchestrations to use CMS
 5. Add health check orchestration

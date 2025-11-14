@@ -49,7 +49,7 @@ async fn build_connection_strings(
         
         let mut external_ip: Option<String> = None;
         
-        for attempt in 1..=5 {
+        for attempt in 1..=10 {
             let svc = services.get(&service_name).await?;
             
             if let Some(status) = &svc.status {

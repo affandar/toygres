@@ -161,8 +161,11 @@ async fn handle_create(
         format!("{}-{}", name, base)
     });
     
+    let instance_id = format!("create-{}", unique_instance_name);
+    
     // Build input (use unique instance name for K8s resources)
     let input = CreateInstanceInput {
+        user_name: name.clone(),
         name: unique_instance_name.clone(),
         password,
         postgres_version: version,
@@ -170,10 +173,10 @@ async fn handle_create(
         use_load_balancer: Some(use_load_balancer),
         dns_label,
         namespace,
+        orchestration_id: instance_id.clone(),
     };
     
     let input_json = serde_json::to_string(&input)?;
-    let instance_id = format!("create-{}", unique_instance_name);
     
     // Start orchestration
     tracing::info!("Starting create-instance orchestration");
@@ -232,14 +235,16 @@ async fn handle_delete(
     // In Phase 3 with metadata DB, we'll look up by user-friendly name
     tracing::info!("Deleting PostgreSQL instance: {}", name);
     
+    let instance_id = format!("delete-{}", name);
+    
     // Build input
     let input = DeleteInstanceInput {
         name: name.clone(),
         namespace,
+        orchestration_id: instance_id.clone(),
     };
     
     let input_json = serde_json::to_string(&input)?;
-    let instance_id = format!("delete-{}", name);
     
     // Start orchestration
     tracing::info!("Starting delete-instance orchestration");

@@ -118,7 +118,8 @@ Use the provided infrastructure setup script:
 
 3. **Set up metadata database** (when ready to use control plane):
    ```bash
-   ./scripts/setup-db.sh
+   ./scripts/db-init.sh
+   ./scripts/db-migrate.sh   # (no-op until we add 0002+ migrations)
    ```
 
 ### Test Deployment
@@ -175,8 +176,9 @@ toygres/
 # Setup AKS cluster
 ./scripts/setup-infra.sh
 
-# Setup metadata database schema
-./scripts/setup-db.sh
+# Setup metadata database schema + future migrations
+./scripts/db-init.sh
+./scripts/db-migrate.sh
 ```
 
 ### Deployment Management

@@ -33,11 +33,12 @@ psql "$DATABASE_URL" -c "\dt"
 
 #### Schema Not Found
 ```bash
-# Run the setup script
-./scripts/setup-db.sh
+# Re-run the init + migration scripts
+./scripts/db-init.sh
+./scripts/db-migrate.sh
 
-# Or manually create schema
-psql "$DATABASE_URL" -f scripts/setup-db.sh
+# Or apply the SQL manually
+psql "$DATABASE_URL" -f migrations/cms/0001_initial_schema.sql
 ```
 
 ### Kubernetes Issues

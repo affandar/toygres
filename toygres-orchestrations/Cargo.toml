@@ -29,6 +29,9 @@ serde_yaml = "0.9"
 # Templating
 tera = "1.19"
 
+# One-time initialization helpers
+once_cell = "1.19"
+
 # PostgreSQL client
 tokio-postgres = "0.7"
 
