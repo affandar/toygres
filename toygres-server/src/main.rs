@@ -19,11 +19,36 @@ mod worker;
 #[command(author, version, about, long_about = None)]
 struct Args {
     #[command(subcommand)]
-    command: Commands,
+    mode: Mode,
 }
 
 #[derive(Subcommand, Debug)]
-enum Commands {
+enum Mode {
+    /// Run as standalone server (API + Workers)
+    Standalone {
+        /// API port
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+        
+        /// Number of worker threads
+        #[arg(short, long, default_value = "1")]
+        workers: usize,
+    },
+    
+    /// Run as API server only (no workers)
+    Api {
+        /// API port
+        #[arg(short, long, default_value = "8080")]
+        port: u16,
+    },
+    
+    /// Run as worker only (no API)
+    Worker {
+        /// Worker ID
+        #[arg(long)]
+        worker_id: Option<String>,
+    },
+    
     /// Create a new PostgreSQL instance
     Create {
         /// DNS name for the instance (e.g., "mydb" creates mydb.<region>.cloudapp.azure.com)
@@ -86,66 +111,129 @@ async fn main() -> Result<()> {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    // Route to appropriate mode
+    match args.mode {
+        Mode::Standalone { port, workers } => {
+            run_standalone_mode(port, workers).await
+        }
+        Mode::Api { port } => {
+            run_api_mode(port).await
+        }
+        Mode::Worker { worker_id } => {
+            run_worker_mode(worker_id).await
+        }
+        Mode::Create { name, password, version, storage, internal, namespace } => {
+            run_create_command(name, password, version, storage, internal, namespace).await
+        }
+        Mode::Delete { name, namespace } => {
+            run_delete_command(name, namespace).await
+        }
+    }
+}
+
+async fn run_standalone_mode(port: u16, _workers: usize) -> Result<()> {
+    tracing::info!("Starting Toygres in standalone mode (API + Workers)");
+    tracing::info!("API port: {}", port);
+    
+    // Initialize Duroxide
+    let (runtime, store) = initialize_duroxide().await?;
+    
+    // Create API state
+    let client = Arc::new(Client::new(store.clone()));
+    let state = api::AppState {
+        duroxide_client: client,
+        store: store.clone(),
+    };
+    
+    // Start API server
+    tracing::info!("Starting API server on 0.0.0.0:{}", port);
+    
+    // Spawn API server task
+    let api_handle = tokio::spawn(async move {
+        if let Err(e) = api::start_server(port, state).await {
+            tracing::error!("API server error: {}", e);
+        }
+    });
+    
+    tracing::info!("✓ Toygres server ready");
+    tracing::info!("  API: http://0.0.0.0:{}", port);
+    tracing::info!("  Press Ctrl+C to stop");
+    
+    // Wait for shutdown signal
+    tokio::signal::ctrl_c().await?;
+    
+    tracing::info!("Shutting down...");
+    api_handle.abort();
+    
+    tracing::info!("Shutting down Duroxide runtime");
+    runtime.shutdown(None).await;
+    
+    Ok(())
+}
+
+async fn run_api_mode(port: u16) -> Result<()> {
+    tracing::info!("Starting Toygres in API-only mode");
+    tracing::info!("API port: {}", port);
+    
+    // TODO: Implement API mode
+    // - Start API server
+    // - No workers (just Duroxide client)
+    
+    anyhow::bail!("API mode not yet implemented")
+}
+
+async fn run_worker_mode(worker_id: Option<String>) -> Result<()> {
+    let id = worker_id.unwrap_or_else(|| format!("worker-{}", Uuid::new_v4()));
+    tracing::info!("Starting Toygres in worker-only mode");
+    tracing::info!("Worker ID: {}", id);
+    
+    // TODO: Implement worker mode
+    // - Start Duroxide runtime with workers
+    // - No API server
+    
+    anyhow::bail!("Worker mode not yet implemented")
+}
+
+async fn run_create_command(
+    name: String,
+    password: String,
+    version: Option<String>,
+    storage: Option<i32>,
+    internal: bool,
+    namespace: Option<String>,
+) -> Result<()> {
     tracing::info!("Toygres Control Plane CLI");
     
-    // Initialize PostgreSQL provider for Duroxide with custom schema
-    // For CLI testing, use a temporary in-memory SQLite connection
-    // Format: postgresql://... but duroxide-pg also supports sqlite://...
-    let db_url = std::env::var("DATABASE_URL")
-        .unwrap_or_else(|_| "sqlite::memory:".to_string());
-    
-    let schema_name = "toygres_duroxide";
-    
-    tracing::info!("Connecting to Duroxide store: {} (schema: {})", 
-        if db_url.starts_with("sqlite") { "SQLite (in-memory)" } else { "PostgreSQL" },
-        schema_name);
-    
-    let store = Arc::new(PostgresProvider::new_with_schema(&db_url, Some(schema_name)).await
-        .map_err(|e| anyhow::anyhow!("Failed to initialize Duroxide store: {}", e))?);
-    
-    // Initialize schema (creates tables if they don't exist)
-    store.initialize_schema().await
-        .map_err(|e| anyhow::anyhow!("Failed to initialize Duroxide schema: {}", e))?;
-    
-    // Initialize CMS schema and verify tables if using PostgreSQL
-    if !db_url.starts_with("sqlite") {
-        tracing::info!("Initializing CMS schema");
-        initialize_cms_schema(&db_url).await?;
-        verify_cms_tables(&db_url).await?;
-    }
-    
-    // Create activity and orchestration registries
-    let activities = Arc::new(create_activity_registry());
-    let orchestrations = create_orchestration_registry();
-    
-    // Configure runtime options
-    let mut runtime_options = RuntimeOptions::default();
-    // Set activity execution timeout to 5 minutes
-    // worker_lock_timeout_secs controls how long an activity can run before timing out
-    runtime_options.worker_lock_timeout_secs = 300; // 5 minutes
-    
-    // Start Duroxide runtime
-    tracing::info!("Starting Duroxide runtime with 5-minute activity timeout");
-    let runtime = Runtime::start_with_options(
-        store.clone(),
-        activities,
-        orchestrations,
-        runtime_options,
-    )
-    .await;
+    // Initialize Duroxide
+    let (runtime, store) = initialize_duroxide().await?;
     
     // Create Duroxide client
     let client = Client::new(store);
     
-    // Execute command
-    match args.command {
-        Commands::Create { name, password, version, storage, internal, namespace } => {
-            handle_create(client, name, password, version, storage, !internal, namespace).await?;
-        }
-        Commands::Delete { name, namespace } => {
-            handle_delete(client, name, namespace).await?;
-        }
-    }
+    // Execute create command
+    handle_create(client, name, password, version, storage, !internal, namespace).await?;
+    
+    // Shutdown runtime
+    tracing::info!("Shutting down Duroxide runtime");
+    runtime.shutdown(None).await;
+
+    Ok(())
+}
+
+async fn run_delete_command(
+    name: String,
+    namespace: Option<String>,
+) -> Result<()> {
+    tracing::info!("Toygres Control Plane CLI");
+    
+    // Initialize Duroxide
+    let (runtime, store) = initialize_duroxide().await?;
+    
+    // Create Duroxide client
+    let client = Client::new(store);
+    
+    // Execute delete command
+    handle_delete(client, name, namespace).await?;
     
     // Shutdown runtime
     tracing::info!("Shutting down Duroxide runtime");
@@ -399,5 +487,53 @@ async fn lookup_k8s_name_by_user_name(db_url: &str, dns_name: &str) -> Result<St
             dns_name
         ),
     }
+}
+
+/// Initialize Duroxide runtime and store
+async fn initialize_duroxide() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
+    let db_url = std::env::var("DATABASE_URL")
+        .unwrap_or_else(|_| "sqlite::memory:".to_string());
+    
+    let schema_name = "toygres_duroxide";
+    
+    tracing::info!("Connecting to Duroxide store: {} (schema: {})", 
+        if db_url.starts_with("sqlite") { "SQLite (in-memory)" } else { "PostgreSQL" },
+        schema_name);
+    
+    let store = Arc::new(PostgresProvider::new_with_schema(&db_url, Some(schema_name)).await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize Duroxide store: {}", e))?);
+    
+    // Initialize schema (creates tables if they don't exist)
+    store.initialize_schema().await
+        .map_err(|e| anyhow::anyhow!("Failed to initialize Duroxide schema: {}", e))?;
+    
+    // Initialize CMS schema and verify tables if using PostgreSQL
+    if !db_url.starts_with("sqlite") {
+        tracing::info!("Initializing CMS schema");
+        initialize_cms_schema(&db_url).await?;
+        verify_cms_tables(&db_url).await?;
+    }
+    
+    // Create activity and orchestration registries
+    let activities = Arc::new(create_activity_registry());
+    let orchestrations = create_orchestration_registry();
+    
+    // Configure runtime options
+    let mut runtime_options = RuntimeOptions::default();
+    runtime_options.worker_lock_timeout_secs = 300; // 5 minutes
+    
+    // Start Duroxide runtime
+    tracing::info!("Starting Duroxide runtime with 5-minute activity timeout");
+    let runtime = Runtime::start_with_options(
+        store.clone(),
+        activities,
+        orchestrations,
+        runtime_options,
+    )
+    .await;
+    
+    tracing::info!("✓ Duroxide runtime ready");
+    
+    Ok((runtime, store))
 }
 
