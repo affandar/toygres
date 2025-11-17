@@ -123,6 +123,10 @@ pub enum ServerCommand {
         /// Number of lines to show
         #[arg(short = 'n', long, default_value = "100")]
         tail: usize,
+        
+        /// Filter logs by orchestration ID
+        #[arg(short = 'o', long)]
+        orchestration: Option<String>,
     },
     
     /// List orchestrations (advanced diagnostics)
@@ -130,6 +134,10 @@ pub enum ServerCommand {
         /// Filter by status
         #[arg(long)]
         status: Option<String>,
+        
+        /// Filter by instance name (e.g., adardb, mydb)
+        #[arg(short, long)]
+        instance: Option<String>,
         
         /// Limit number of results
         #[arg(short, long, default_value = "20")]

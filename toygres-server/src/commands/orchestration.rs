@@ -3,7 +3,7 @@ use reqwest::StatusCode;
 
 use crate::commands::server::ensure_server_running;
 
-pub async fn list(status: Option<String>, limit: usize) -> Result<()> {
+pub async fn list(status: Option<String>, instance: Option<String>, limit: usize) -> Result<()> {
     // Ensure server is running (auto-start if needed)
     ensure_server_running().await?;
     
@@ -27,10 +27,33 @@ pub async fn list(status: Option<String>, limit: usize) -> Result<()> {
         });
     }
     
+    // Filter by instance name if provided
+    if let Some(instance_filter) = &instance {
+        orchestrations.retain(|o| {
+            // Check if the instance_id contains the instance name
+            // Orchestration IDs follow patterns like: create-<name>-<guid>, delete-<name>-<guid>
+            if let Some(id) = o["instance_id"].as_str() {
+                id.contains(instance_filter)
+            } else {
+                false
+            }
+        });
+    }
+    
     // Limit results
     orchestrations.truncate(limit);
     
-    println!("Orchestrations (Advanced Diagnostics)");
+    // Show filter info if applied
+    if let Some(ref inst) = instance {
+        println!("Orchestrations for instance: {}", inst);
+    } else {
+        println!("Orchestrations (Advanced Diagnostics)");
+    }
+    
+    if let Some(ref stat) = status {
+        println!("Filtered by status: {}", stat);
+    }
+    
     println!("{}", "=".repeat(110));
     println!();
     println!("{:<35} {:<25} {:<10} {:<10} {:<20}", 
@@ -52,9 +75,23 @@ pub async fn list(status: Option<String>, limit: usize) -> Result<()> {
     }
     
     println!();
-    println!("{} orchestration(s) found", orchestrations.len());
-    println!();
-    println!("Use './toygres server orchestration <ID>' for details");
+    
+    if orchestrations.is_empty() {
+        if let Some(ref inst) = instance {
+            println!("No orchestrations found for instance: {}", inst);
+            println!();
+            println!("Tips:");
+            println!("  - Check if the instance name is correct");
+            println!("  - Instance names are part of orchestration IDs (e.g., create-mydb-12345678)");
+            println!("  - Try listing all orchestrations without the filter");
+        } else {
+            println!("No orchestrations found");
+        }
+    } else {
+        println!("{} orchestration(s) found", orchestrations.len());
+        println!();
+        println!("Use './toygres server orchestration <ID>' for details");
+    }
     
     Ok(())
 }

@@ -22,11 +22,11 @@ pub async fn handle_command(command: ServerCommand) -> Result<()> {
         ServerCommand::Status => {
             status(&pid_file).await
         }
-        ServerCommand::Logs { follow, tail } => {
-            logs(&log_file, follow, tail).await
+        ServerCommand::Logs { follow, tail, orchestration } => {
+            logs(&log_file, follow, tail, orchestration).await
         }
-        ServerCommand::Orchestrations { status, limit } => {
-            crate::commands::orchestration::list(status, limit).await
+        ServerCommand::Orchestrations { status, instance, limit } => {
+            crate::commands::orchestration::list(status, instance, limit).await
         }
         ServerCommand::Orchestration { id, history } => {
             crate::commands::orchestration::get(&id, history).await
@@ -240,7 +240,7 @@ async fn status(pid_file: &Path) -> Result<()> {
     Ok(())
 }
 
-async fn logs(log_file: &Path, follow: bool, tail: usize) -> Result<()> {
+async fn logs(log_file: &Path, follow: bool, tail: usize, orchestration: Option<String>) -> Result<()> {
     if !log_file.exists() {
         println!("✗ No log file found at: {}", log_file.display());
         println!("  Server may not have been started yet");
@@ -249,19 +249,43 @@ async fn logs(log_file: &Path, follow: bool, tail: usize) -> Result<()> {
     
     if follow {
         // Follow logs (like tail -f)
-        println!("Following logs from: {}", log_file.display());
+        if let Some(ref orch_id) = orchestration {
+            println!("Following logs from: {} (filtered by orchestration: {})", log_file.display(), orch_id);
+        } else {
+            println!("Following logs from: {}", log_file.display());
+        }
         println!("Press Ctrl+C to stop");
         println!();
         
-        // Use tail command on Unix
+        // Use tail command with grep on Unix
         #[cfg(unix)]
         {
-            let status = std::process::Command::new("tail")
-                .args(["-f", "-n", &tail.to_string(), log_file.to_str().unwrap()])
-                .status()?;
-            
-            if !status.success() {
-                anyhow::bail!("Failed to tail logs");
+            if let Some(orch_id) = orchestration {
+                // Use tail -f piped through grep for filtering
+                let mut child = std::process::Command::new("sh")
+                    .args([
+                        "-c",
+                        &format!(
+                            "tail -f -n {} {} | grep --line-buffered '{}'",
+                            tail,
+                            log_file.to_str().unwrap(),
+                            orch_id
+                        )
+                    ])
+                    .spawn()?;
+                
+                let status = child.wait()?;
+                if !status.success() {
+                    anyhow::bail!("Failed to tail and filter logs");
+                }
+            } else {
+                let status = std::process::Command::new("tail")
+                    .args(["-f", "-n", &tail.to_string(), log_file.to_str().unwrap()])
+                    .status()?;
+                
+                if !status.success() {
+                    anyhow::bail!("Failed to tail logs");
+                }
             }
         }
         
@@ -275,12 +299,48 @@ async fn logs(log_file: &Path, follow: bool, tail: usize) -> Result<()> {
         
         let file = std::fs::File::open(log_file)?;
         let reader = BufReader::new(file);
-        let lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
         
-        let start = if lines.len() > tail { lines.len() - tail } else { 0 };
+        // Filter lines if orchestration ID is provided
+        let all_lines: Vec<String> = reader.lines().filter_map(|l| l.ok()).collect();
         
-        for line in &lines[start..] {
+        let filtered_lines: Vec<&String> = if let Some(ref orch_id) = orchestration {
+            all_lines.iter()
+                .filter(|line| line.contains(orch_id))
+                .collect()
+        } else {
+            all_lines.iter().collect()
+        };
+        
+        let start = if filtered_lines.len() > tail { 
+            filtered_lines.len() - tail 
+        } else { 
+            0 
+        };
+        
+        if let Some(ref orch_id) = orchestration {
+            if filtered_lines.is_empty() {
+                println!("No log entries found for orchestration: {}", orch_id);
+                println!();
+                println!("Tips:");
+                println!("  - Check if the orchestration ID is correct");
+                println!("  - Try without the filter to see all logs");
+                return Ok(());
+            }
+            
+            println!("Showing {} log entries for orchestration: {}", filtered_lines.len(), orch_id);
+            println!("{}", "-".repeat(80));
+            println!();
+        }
+        
+        for line in &filtered_lines[start..] {
             println!("{}", line);
+        }
+        
+        if let Some(_) = orchestration {
+            println!();
+            println!("Showing last {} matching entries (total: {} matches)", 
+                     filtered_lines.len() - start, 
+                     filtered_lines.len());
         }
     }
     
