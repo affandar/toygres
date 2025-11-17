@@ -1,0 +1,14 @@
+#!/bin/bash
+# Toygres CLI wrapper script
+# This script wraps cargo run --bin toygres-server for easier usage during development
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# Change to project directory
+cd "$SCRIPT_DIR"
+
+# Run toygres-server with all arguments passed through
+exec cargo run --quiet --bin toygres-server -- "$@"
+

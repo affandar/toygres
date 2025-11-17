@@ -33,6 +33,9 @@ serde_yaml = "0.9"
 tera = "1.19"
 clap = { version = "4.5", features = ["derive"] }
 tokio-postgres = "0.7"
-# Using duroxide-pg for now (in-memory mode for CLI testing)
-# Will use PostgreSQL backend when we add metadata database
+reqwest = { version = "0.11", features = ["json"] }
+chrono = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.29", features = ["signal"] }
 

@@ -159,19 +159,40 @@ cargo run --example manual_deploy
 # Build all crates
 cargo build --workspace
 
+# For convenience, use the wrapper script (in project root)
+# Instead of: cargo run --bin toygres-server -- <command>
+# Use: ./toygres <command>
+
+# Start the server (API + Workers)
+./toygres server start
+
+# List instances
+./toygres list
+
 # Create a PostgreSQL instance
 # The name you provide becomes the DNS name: <name>.<region>.cloudapp.azure.com
-cargo run --bin toygres-server -- create adardb1 --password mySecurePass123
+# Returns immediately - instance is created in the background
+./toygres create adardb1 --password mySecurePass123
+
+# Check instance status (state will show 'creating' → 'running')
+./toygres get adardb1
+
+# List all instances
+./toygres list
 
 # Delete an instance (use the same DNS name you used to create it)
-cargo run --bin toygres-server -- delete adardb1
+# Returns immediately - instance is deleted in the background
+./toygres delete adardb1
 
-# Expected output for create:
-# ✓ PostgreSQL instance created successfully!
-# ✓ User name: adardb1
-# ✓ K8s instance: adardb1-a1b2c3d4
-# ✓ DNS: adardb1.westus3.cloudapp.azure.com
-# ✓ Connection strings and deployment details
+# Stop the server
+./toygres server stop
+
+# Advanced diagnostics (for debugging orchestrations)
+./toygres server orchestrations              # List all orchestrations
+./toygres server orchestration <id> --history  # Show execution details
+
+# Or use the full cargo command:
+cargo run --bin toygres-server -- create adardb1 --password mySecurePass123
 ```
 
 ## Project Structure

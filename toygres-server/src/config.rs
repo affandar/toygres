@@ -1,5 +1,6 @@
 use anyhow::{Context, Result};
 
+#[allow(dead_code)]  // Placeholder for future configuration management
 #[derive(Debug, Clone)]
 pub struct Config {
     pub database_url: String,
@@ -10,6 +11,7 @@ pub struct Config {
     pub aks_namespace: String,
 }
 
+#[allow(dead_code)]  // Will be used in future for centralized config loading
 impl Config {
     pub fn load() -> Result<Self> {
         dotenvy::dotenv().ok();
