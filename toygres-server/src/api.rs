@@ -3,7 +3,7 @@ use axum::{
     extract::{Path, State},
     http::StatusCode,
     response::{IntoResponse, Json},
-    routing::get,
+    routing::{get, post},
     Router,
 };
 use chrono;
@@ -34,6 +34,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances/:name", get(get_instance))
         .route("/api/server/orchestrations", get(list_orchestrations))
         .route("/api/server/orchestrations/:id", get(get_orchestration))
+        .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
         .layer(cors)
         .with_state(state)
 }
@@ -322,6 +323,30 @@ async fn get_orchestration(
         "output": output,
         "history": history,
     })))
+}
+
+async fn cancel_orchestration(
+    State(_state): State<AppState>,
+    Path(_id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // TODO: Implement once duroxide Client supports cancel_orchestration
+    // The cancel_orchestration method currently only exists on OrchestrationContext (for use within orchestrations),
+    // not on the Client (for management operations). Once the duroxide management API is extended,
+    // we can uncomment the implementation below:
+    //
+    // if !state.duroxide_client.has_management_capability() {
+    //     return Err(AppError::Internal("Management features not available".to_string()));
+    // }
+    // 
+    // state.duroxide_client
+    //     .cancel_orchestration(&id)
+    //     .await
+    //     .map_err(|e| AppError::Internal(format!("Failed to cancel: {}", e)))?;
+    
+    Err(AppError::NotImplemented(
+        "Orchestration cancellation via management API not yet available in duroxide. \
+         This feature requires duroxide Client to expose a cancel_orchestration method.".to_string()
+    ))
 }
 
 // ============================================================================
