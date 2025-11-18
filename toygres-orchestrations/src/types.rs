@@ -70,3 +70,20 @@ pub struct DeleteInstanceOutput {
     pub deleted: bool,
 }
 
+// ============================================================================
+// Instance Actor Orchestration
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct InstanceActorInput {
+    /// K8s instance name (with GUID)
+    pub k8s_name: String,
+    /// Kubernetes namespace
+    pub namespace: String,
+    /// Orchestration ID
+    pub orchestration_id: String,
+}
+
+// Output: Unit type, continues forever or exits with error
+// This orchestration uses continue-as-new and never completes normally
+

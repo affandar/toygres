@@ -71,6 +71,21 @@ pub mod activities {
 
         /// Fetch CMS instance by Kubernetes name
         pub const GET_INSTANCE_BY_K8S_NAME: &str = "toygres-orchestrations::activity::cms-get-instance-by-k8s-name";
+
+        /// Get instance connection string and state
+        pub const GET_INSTANCE_CONNECTION: &str = "toygres-orchestrations::activity::cms-get-instance-connection";
+
+        /// Record health check result in database
+        pub const RECORD_HEALTH_CHECK: &str = "toygres-orchestrations::activity::cms-record-health-check";
+
+        /// Update instance health status
+        pub const UPDATE_INSTANCE_HEALTH: &str = "toygres-orchestrations::activity::cms-update-instance-health";
+
+        /// Record instance actor orchestration ID
+        pub const RECORD_INSTANCE_ACTOR: &str = "toygres-orchestrations::activity::cms-record-instance-actor";
+
+        /// Delete instance record from CMS
+        pub const DELETE_INSTANCE_RECORD: &str = "toygres-orchestrations::activity::cms-delete-instance-record";
     }
 }
 

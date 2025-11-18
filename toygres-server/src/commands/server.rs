@@ -417,40 +417,6 @@ pub async fn ensure_server_running() -> Result<()> {
         anyhow::bail!("Server is running but not responding. Check logs: ./toygres server logs");
     }
     
-    // Server not running - prompt to start
-    println!();
-    println!("⚠️  No toygres server found.");
-    println!();
-    println!("Would you like to start a local server? (Y/n) ");
-    
-    // Read user input
-    use std::io::{self, BufRead};
-    let stdin = io::stdin();
-    let mut line = String::new();
-    stdin.lock().read_line(&mut line)?;
-    
-    let answer = line.trim().to_lowercase();
-    if answer.is_empty() || answer == "y" || answer == "yes" {
-        println!();
-        start(8080, false, &pid_file, &log_file).await?;
-        
-        // Wait for server to be fully ready (can take up to 40 seconds for DB init)
-        println!();
-        println!("Waiting for server to be ready...");
-        for i in 0..60 {
-            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-            if let Ok(response) = reqwest::get(format!("{}/health", api_url)).await {
-                if response.status().is_success() {
-                    println!("✓ Server is ready ({}s)", i + 1);
-                    println!();
-                    return Ok(());
-                }
-            }
-        }
-        
-        anyhow::bail!("Server started but did not become ready in time. Check logs: ./toygres server logs");
-    } else {
-        anyhow::bail!("Server is required for this command. Start it with: ./toygres server start");
-    }
+    anyhow::bail!("Server is required for this command. Start it with: ./toygres server start");
 }
 

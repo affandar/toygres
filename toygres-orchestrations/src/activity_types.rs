@@ -190,5 +190,85 @@ pub struct CmsInstanceRecord {
 pub struct GetInstanceByK8sNameOutput {
     pub found: bool,
     pub record: Option<CmsInstanceRecord>,
+    pub instance_actor_orchestration_id: Option<String>,
+}
+
+// ============================================================================
+// Get Instance Connection Activity (CMS)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetInstanceConnectionInput {
+    pub k8s_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct GetInstanceConnectionOutput {
+    pub found: bool,
+    pub connection_string: Option<String>,
+    pub state: Option<String>,
+}
+
+// ============================================================================
+// Record Health Check Activity (CMS)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecordHealthCheckInput {
+    pub k8s_name: String,
+    pub status: String,  // "healthy", "unhealthy", "unknown"
+    pub postgres_version: Option<String>,
+    pub response_time_ms: Option<i32>,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecordHealthCheckOutput {
+    pub recorded: bool,
+    pub check_id: i64,
+}
+
+// ============================================================================
+// Update Instance Health Activity (CMS)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateInstanceHealthInput {
+    pub k8s_name: String,
+    pub health_status: String,  // "healthy", "unhealthy", "unknown"
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct UpdateInstanceHealthOutput {
+    pub updated: bool,
+}
+
+// ============================================================================
+// Record Instance Actor Activity (CMS)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecordInstanceActorInput {
+    pub k8s_name: String,
+    pub instance_actor_orchestration_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RecordInstanceActorOutput {
+    pub recorded: bool,
+}
+
+// ============================================================================
+// Delete Instance Record Activity (CMS)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeleteInstanceRecordInput {
+    pub k8s_name: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeleteInstanceRecordOutput {
+    pub deleted: bool,
 }
 

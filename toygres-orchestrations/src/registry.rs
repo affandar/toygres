@@ -24,6 +24,10 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             orchestrations::DELETE_INSTANCE,
             crate::orchestrations::delete_instance::delete_instance_orchestration,
         )
+        .register_typed(
+            orchestrations::INSTANCE_ACTOR,
+            crate::orchestrations::instance_actor::instance_actor_orchestration,
+        )
         .build()
 }
 
@@ -73,6 +77,26 @@ pub fn create_activity_registry() -> ActivityRegistry {
         .register_typed(
             activities::cms::GET_INSTANCE_BY_K8S_NAME,
             crate::activities::cms::get_instance_by_k8s_name::get_instance_by_k8s_name_activity,
+        )
+        .register_typed(
+            activities::cms::GET_INSTANCE_CONNECTION,
+            crate::activities::cms::get_instance_connection::get_instance_connection_activity,
+        )
+        .register_typed(
+            activities::cms::RECORD_HEALTH_CHECK,
+            crate::activities::cms::record_health_check::record_health_check_activity,
+        )
+        .register_typed(
+            activities::cms::UPDATE_INSTANCE_HEALTH,
+            crate::activities::cms::update_instance_health::update_instance_health_activity,
+        )
+        .register_typed(
+            activities::cms::RECORD_INSTANCE_ACTOR,
+            crate::activities::cms::record_instance_actor::record_instance_actor_activity,
+        )
+        .register_typed(
+            activities::cms::DELETE_INSTANCE_RECORD,
+            crate::activities::cms::delete_instance_record::delete_instance_record_activity,
         )
         .build()
 }

@@ -8,6 +8,7 @@ use crate::activity_types::{
     UpdateInstanceStateInput, UpdateInstanceStateOutput,
     FreeDnsNameInput, FreeDnsNameOutput,
     GetInstanceByK8sNameInput, GetInstanceByK8sNameOutput,
+    DeleteInstanceRecordInput, DeleteInstanceRecordOutput,
 };
 
 pub async fn delete_instance_orchestration(
@@ -47,6 +48,15 @@ pub async fn delete_instance_orchestration(
         ctx.trace_info("CMS record not found, proceeding with best-effort cleanup");
     }
     
+    // Step 0.5: Instance actor will self-terminate when it detects state="deleting"
+    // The state update above triggers graceful shutdown on next health check (within 30 seconds)
+    if let Some(actor_id) = cms_record.instance_actor_orchestration_id {
+        ctx.trace_info(format!(
+            "Instance actor '{}' will self-terminate when it detects deletion state",
+            actor_id
+        ));
+    }
+    
     // Step 1: Delete PostgreSQL resources
     ctx.trace_info("Step 1: Deleting PostgreSQL from Kubernetes");
     let delete_input = DeletePostgresInput {
@@ -61,6 +71,7 @@ pub async fn delete_instance_orchestration(
     
     ctx.trace_info(format!("Instance deletion complete (deleted: {})", delete_output.deleted));
     
+    // Mark as deleted state first (gives instance actor time to detect deletion)
     let update_input = UpdateInstanceStateInput {
         k8s_name: input.name.clone(),
         state: "deleted".to_string(),
@@ -71,6 +82,14 @@ pub async fn delete_instance_orchestration(
         message: Some(format!("Deleted (resources deleted: {})", delete_output.deleted)),
     };
     update_cms_state(&ctx, update_input).await;
+    
+    // Wait a moment to allow instance actor to detect deletion and exit cleanly
+    ctx.trace_info("Waiting for instance actor to detect deletion...");
+    ctx.schedule_timer(35000).into_timer().await; // 35 seconds (just over one actor cycle)
+    
+    // Now delete the CMS record entirely (this triggers actor completion)
+    ctx.trace_info("Removing CMS record");
+    delete_cms_record(&ctx, &input.name).await;
     
     free_dns_name(&ctx, &input.name).await;
     
@@ -112,6 +131,28 @@ async fn free_dns_name(
         .await
     {
         ctx.trace_warn(format!("Failed to free DNS name: {}", err));
+    }
+}
+
+async fn delete_cms_record(
+    ctx: &OrchestrationContext,
+    k8s_name: &str,
+) {
+    ctx.trace_info("Deleting CMS record (triggers instance actor completion)");
+    
+    if let Err(err) = ctx
+        .schedule_activity_typed::<DeleteInstanceRecordInput, DeleteInstanceRecordOutput>(
+            activities::cms::DELETE_INSTANCE_RECORD,
+            &DeleteInstanceRecordInput {
+                k8s_name: k8s_name.to_string(),
+            },
+        )
+        .into_activity_typed::<DeleteInstanceRecordOutput>()
+        .await
+    {
+        ctx.trace_warn(format!("Failed to delete CMS record: {}", err));
+    } else {
+        ctx.trace_info("CMS record deleted, instance actor will complete on next iteration");
     }
 }
 

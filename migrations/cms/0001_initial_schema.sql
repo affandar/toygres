@@ -50,7 +50,7 @@ CREATE TABLE IF NOT EXISTS instances (
     health_status health_status NOT NULL DEFAULT 'unknown',
     create_orchestration_id TEXT NOT NULL,
     delete_orchestration_id TEXT,
-    health_check_orchestration_id TEXT,
+    instance_actor_orchestration_id TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     deleted_at TIMESTAMPTZ,

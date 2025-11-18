@@ -2,7 +2,7 @@
 
 use duroxide::OrchestrationContext;
 use crate::names::orchestrations;
-use crate::types::{CreateInstanceInput, CreateInstanceOutput, DeleteInstanceInput};
+use crate::types::{CreateInstanceInput, CreateInstanceOutput, DeleteInstanceInput, InstanceActorInput};
 use crate::activity_names::activities;
 use crate::activity_types::{
     DeployPostgresInput, DeployPostgresOutput,
@@ -12,6 +12,7 @@ use crate::activity_types::{
     CreateInstanceRecordInput, CreateInstanceRecordOutput,
     UpdateInstanceStateInput, UpdateInstanceStateOutput,
     FreeDnsNameInput, FreeDnsNameOutput,
+    RecordInstanceActorInput, RecordInstanceActorOutput,
 };
 
 pub async fn create_instance_orchestration(
@@ -60,6 +61,10 @@ pub async fn create_instance_orchestration(
                 message: Some(format!("Instance ready in {} seconds", output.deployment_time_seconds)),
             };
             update_cms_state(&ctx, update_input).await;
+            
+            // Start instance actor (detached orchestration for continuous monitoring and per-instance tasks)
+            start_instance_actor(&ctx, &input.name, &namespace).await;
+            
             Ok(output)
         }
         Err(e) => {
@@ -244,6 +249,49 @@ async fn update_cms_state(
         .await
     {
         ctx.trace_warn(format!("Failed to update CMS state: {}", err));
+    }
+}
+
+async fn start_instance_actor(
+    ctx: &OrchestrationContext,
+    k8s_name: &str,
+    namespace: &str,
+) {
+    ctx.trace_info("Starting instance actor for continuous monitoring");
+    
+    let actor_id = format!("actor-{}", k8s_name);
+    
+    let actor_input = InstanceActorInput {
+        k8s_name: k8s_name.to_string(),
+        namespace: namespace.to_string(),
+        orchestration_id: actor_id.clone(),
+    };
+    
+    // Start as a detached orchestration (runs independently)
+    let input_json = serde_json::to_string(&actor_input)
+        .unwrap_or_else(|_| "{}".to_string());
+    
+    ctx.schedule_orchestration(
+        orchestrations::INSTANCE_ACTOR,
+        &actor_id,
+        input_json,
+    );
+    
+    ctx.trace_info(format!("Instance actor scheduled: {}", actor_id));
+    
+    // Record the actor orchestration ID in CMS
+    if let Err(err) = ctx
+        .schedule_activity_typed::<RecordInstanceActorInput, RecordInstanceActorOutput>(
+            activities::cms::RECORD_INSTANCE_ACTOR,
+            &RecordInstanceActorInput {
+                k8s_name: k8s_name.to_string(),
+                instance_actor_orchestration_id: actor_id,
+            },
+        )
+        .into_activity_typed::<RecordInstanceActorOutput>()
+        .await
+    {
+        ctx.trace_warn(format!("Failed to record instance actor ID: {}", err));
     }
 }
 

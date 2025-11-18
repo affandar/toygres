@@ -18,7 +18,7 @@ pub async fn get_instance_by_k8s_name_activity(
 
     let record = sqlx::query(
         r#"
-        SELECT id, user_name, k8s_name, namespace, state::text as state, dns_name
+        SELECT id, user_name, k8s_name, namespace, state::text as state, dns_name, instance_actor_orchestration_id
         FROM toygres_cms.instances
         WHERE k8s_name = $1
         "#
@@ -37,12 +37,19 @@ pub async fn get_instance_by_k8s_name_activity(
             state: row.try_get("state").map_err(|e| format!("Failed to read state: {}", e))?,
             dns_name: row.try_get("dns_name").ok(),
         };
+        let instance_actor_orchestration_id: Option<String> = row.try_get("instance_actor_orchestration_id").ok();
+        
         Ok(GetInstanceByK8sNameOutput {
             found: true,
             record: Some(rec),
+            instance_actor_orchestration_id,
         })
     } else {
-        Ok(GetInstanceByK8sNameOutput { found: false, record: None })
+        Ok(GetInstanceByK8sNameOutput {
+            found: false,
+            record: None,
+            instance_actor_orchestration_id: None,
+        })
     }
 }
 

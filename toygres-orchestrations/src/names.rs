@@ -23,10 +23,18 @@ pub mod orchestrations {
     /// **Activities used:**
     /// - [`toygres_activities::names::activities::DELETE_POSTGRES`]
     /// **Duration:** ~10 seconds
-    /// **Note:** In Phase 3, will also cancel health check orchestration
+    /// **Note:** Cancels instance actor orchestration before deletion
     pub const DELETE_INSTANCE: &str = "toygres-orchestrations::orchestration::delete-instance";
     
-    // Phase 3: Health check orchestration
-    // pub const HEALTH_CHECK: &str = "toygres-orchestrations::orchestration::health-check";
+    /// Instance Actor - Continuous per-instance operations
+    /// 
+    /// **Input:** [`crate::types::InstanceActorInput`]  
+    /// **Output:** Never completes (continues-as-new forever)  
+    /// **Activities used:**
+    /// - Health monitoring every 30 seconds
+    /// - Future: Auto-scaling, backups, maintenance
+    /// **Duration:** Runs until instance deleted
+    /// **Pattern:** Detached orchestration with continue-as-new
+    pub const INSTANCE_ACTOR: &str = "toygres-orchestrations::orchestration::instance-actor";
 }
 
