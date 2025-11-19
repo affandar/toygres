@@ -40,3 +40,8 @@ mod activities;
 pub use types::*;
 pub use activity_types::*;
 
+/// Initialize the duroxide client for activities that need it (e.g., raise_event)
+pub fn init_duroxide_client(client: std::sync::Arc<duroxide::Client>) {
+    activities::raise_event::init_client(client);
+}
+

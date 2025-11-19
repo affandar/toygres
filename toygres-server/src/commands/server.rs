@@ -400,7 +400,6 @@ pub async fn ensure_server_running() -> Result<()> {
     let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
     let toygres_dir = PathBuf::from(home).join(".toygres");
     let pid_file = toygres_dir.join("server.pid");
-    let log_file = toygres_dir.join("server.log");
     
     // Check if server process exists
     if is_running(&pid_file)? {

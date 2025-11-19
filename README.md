@@ -9,8 +9,10 @@ A Rust-based control plane for hosting PostgreSQL containers as a service on Azu
 - **Public & Private Access**: Supports LoadBalancer (public IP) or ClusterIP (internal only)
 - **DNS Support**: Automatic Azure DNS names for instances
 - **YAML Templates**: Kubernetes resources defined in clean, readable YAML
-- **REST API**: Simple API for instance management (coming soon)
-- **PostgreSQL Metadata**: Stores deployment metadata in PostgreSQL (coming soon)
+- **REST API**: Full-featured API for instance management
+- **PostgreSQL Metadata**: Complete CMS database for tracking instances
+- **Web UI**: Modern React-based dashboard for visual management
+- **Health Monitoring**: Continuous per-instance health checks via durable actors
 
 ## Architecture
 
@@ -195,6 +197,29 @@ cargo build --workspace
 cargo run --bin toygres-server -- create adardb1 --password mySecurePass123
 ```
 
+### Web UI
+
+Access the visual dashboard at `http://localhost:3000`:
+
+```bash
+# Start the backend server first
+./toygres server start
+
+# In a new terminal, start the Web UI
+cd toygres-ui
+npm install
+npm start
+
+# Open http://localhost:3000 in your browser
+```
+
+The Web UI provides:
+- 📊 **Dashboard** - System overview and recent activity
+- 🗄️ **Instance Management** - View all PostgreSQL instances
+- 📈 **System Monitoring** - Real-time stats and worker status
+- 🔬 **Debug Tools** - Orchestration viewer and log browser
+- 🔄 **Auto-refresh** - Live updates every 5 seconds
+
 ## Project Structure
 
 ```
@@ -206,8 +231,13 @@ toygres/
 │   │   ├── orchestrations/  # Durable workflows
 │   │   └── templates/       # Kubernetes YAML templates
 ├── toygres-server/          # Control plane server
-│   ├── src/                 # Main server code
+│   ├── src/                 # Main server code (API + CLI)
 │   └── examples/            # Working examples (manual_deploy.rs)
+├── toygres-ui/              # Web interface (React + TypeScript)
+│   ├── src/
+│   │   ├── components/      # React components
+│   │   └── lib/             # API client and utilities
+├── migrations/              # Database schema migrations
 ├── docs/                    # Documentation
 ├── scripts/                 # Setup and management scripts
 └── prompts/                 # AI assistant context docs

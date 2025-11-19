@@ -25,12 +25,12 @@ async fn main() -> Result<()> {
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
                 .unwrap_or_else(|_| {
-                    // Default: info level for toygres and duroxide
-                    "toygres_server=info,\
-                     toygres_activities=info,\
-                     toygres_orchestrations=info,\
-                     duroxide=info,\
-                     duroxide_pg=warn"
+                    // Default: debug level for toygres and duroxide
+                    "toygres_server=debug,\
+                     toygres_activities=debug,\
+                     toygres_orchestrations=debug,\
+                     duroxide=debug,\
+                     duroxide_pg=debug"
                         .into()
                 }),
         )

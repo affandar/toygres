@@ -63,6 +63,10 @@ pub fn create_activity_registry() -> ActivityRegistry {
             crate::activities::test_connection::test_connection_activity,
         )
         .register_typed(
+            activities::RAISE_EVENT,
+            crate::activities::raise_event::raise_event_activity,
+        )
+        .register_typed(
             activities::cms::CREATE_INSTANCE_RECORD,
             crate::activities::cms::create_instance_record::create_instance_record_activity,
         )

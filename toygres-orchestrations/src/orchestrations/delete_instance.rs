@@ -9,6 +9,7 @@ use crate::activity_types::{
     FreeDnsNameInput, FreeDnsNameOutput,
     GetInstanceByK8sNameInput, GetInstanceByK8sNameOutput,
     DeleteInstanceRecordInput, DeleteInstanceRecordOutput,
+    RaiseEventInput, RaiseEventOutput,
 };
 
 pub async fn delete_instance_orchestration(
@@ -33,6 +34,9 @@ pub async fn delete_instance_orchestration(
         .await
         .map_err(|e| format!("Failed to query CMS record: {}", e))?;
     
+    // Store instance actor ID for later use
+    let instance_actor_id = cms_record.instance_actor_orchestration_id.clone();
+    
     if cms_record.found {
         let update_input = UpdateInstanceStateInput {
             k8s_name: input.name.clone(),
@@ -48,11 +52,10 @@ pub async fn delete_instance_orchestration(
         ctx.trace_info("CMS record not found, proceeding with best-effort cleanup");
     }
     
-    // Step 0.5: Instance actor will self-terminate when it detects state="deleting"
-    // The state update above triggers graceful shutdown on next health check (within 30 seconds)
-    if let Some(actor_id) = cms_record.instance_actor_orchestration_id {
+    // Step 0.5: Note that instance actor will be signaled after deletion
+    if let Some(ref actor_id) = instance_actor_id {
         ctx.trace_info(format!(
-            "Instance actor '{}' will self-terminate when it detects deletion state",
+            "Instance actor '{}' will receive deletion signal after cleanup",
             actor_id
         ));
     }
@@ -71,7 +74,29 @@ pub async fn delete_instance_orchestration(
     
     ctx.trace_info(format!("Instance deletion complete (deleted: {})", delete_output.deleted));
     
-    // Mark as deleted state first (gives instance actor time to detect deletion)
+    // Step 2: Signal the instance actor to stop (if it exists)
+    if let Some(actor_id) = instance_actor_id {
+        ctx.trace_info(format!("Sending InstanceDeleted signal to actor '{}'", actor_id));
+        
+        let raise_result = ctx
+            .schedule_activity_typed::<RaiseEventInput, RaiseEventOutput>(
+                activities::RAISE_EVENT,
+                &RaiseEventInput {
+                    instance_id: actor_id.clone(),
+                    event_name: "InstanceDeleted".to_string(),
+                    event_data: "{}".to_string(),
+                },
+            )
+            .into_activity_typed::<RaiseEventOutput>()
+            .await;
+        
+        match raise_result {
+            Ok(_) => ctx.trace_info("Instance actor notified of deletion"),
+            Err(e) => ctx.trace_warn(format!("Failed to notify instance actor: {}", e)),
+        }
+    }
+    
+    // Mark as deleted state
     let update_input = UpdateInstanceStateInput {
         k8s_name: input.name.clone(),
         state: "deleted".to_string(),
@@ -83,11 +108,7 @@ pub async fn delete_instance_orchestration(
     };
     update_cms_state(&ctx, update_input).await;
     
-    // Wait a moment to allow instance actor to detect deletion and exit cleanly
-    ctx.trace_info("Waiting for instance actor to detect deletion...");
-    ctx.schedule_timer(35000).into_timer().await; // 35 seconds (just over one actor cycle)
-    
-    // Now delete the CMS record entirely (this triggers actor completion)
+    // Step 3: Delete the CMS record
     ctx.trace_info("Removing CMS record");
     delete_cms_record(&ctx, &input.name).await;
     

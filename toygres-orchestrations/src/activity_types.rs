@@ -272,3 +272,23 @@ pub struct DeleteInstanceRecordOutput {
     pub deleted: bool,
 }
 
+// ============================================================================
+// Raise Event Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RaiseEventInput {
+    /// Target orchestration instance ID
+    pub instance_id: String,
+    /// Event name
+    pub event_name: String,
+    /// Event data (JSON string)
+    pub event_data: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct RaiseEventOutput {
+    /// Whether the event was raised successfully
+    pub raised: bool,
+}
+

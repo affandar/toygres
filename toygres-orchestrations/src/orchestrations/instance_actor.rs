@@ -143,10 +143,20 @@ pub async fn instance_actor_orchestration(
     
     ctx.trace_info(format!("Health check complete, status: {}", status));
     
-    // Step 7: Wait 30 seconds before next check
-    ctx.schedule_timer(30000).into_timer().await; // 30 seconds = 30000 milliseconds
+    // Step 7: Wait for either 30 seconds OR deletion signal (whichever comes first)
+    let timer = ctx.schedule_timer(30000); // 30 seconds = 30000 milliseconds
+    let deletion_signal = ctx.schedule_wait("InstanceDeleted");
     
-    ctx.trace_info("Restarting instance actor with continue-as-new");
+    let (winner_index, _) = ctx.select2(timer, deletion_signal).await;
+    
+    if winner_index == 1 {
+        // Deletion signal received - exit gracefully
+        ctx.trace_info("Received InstanceDeleted signal, stopping instance actor gracefully");
+        return Ok(());
+    }
+    
+    // Timer fired - continue as new for next health check cycle
+    ctx.trace_info("Health check cycle complete, restarting instance actor with continue-as-new");
     
     // Step 8: Continue as new to prevent unbounded history growth
     // This ends the current execution and starts a fresh one with the same input

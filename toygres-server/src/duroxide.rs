@@ -49,6 +49,10 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
     )
     .await;
     
+    // Initialize the duroxide client for activities that need it (e.g., raise_event)
+    let client = Arc::new(duroxide::Client::new(store.clone()));
+    toygres_orchestrations::init_duroxide_client(client);
+    
     tracing::info!("✓ Duroxide runtime ready");
     
     Ok((runtime, store))

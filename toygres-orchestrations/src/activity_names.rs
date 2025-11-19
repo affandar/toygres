@@ -57,6 +57,15 @@ pub mod activities {
     /// - Runs SELECT version() query
     /// - Returns version string
     pub const TEST_CONNECTION: &str = "toygres-activities::activity::test-connection";
+    
+    /// Raise an external event to another orchestration
+    /// 
+    /// **Input:** [`crate::types::RaiseEventInput`]  
+    /// **Output:** [`crate::types::RaiseEventOutput`]  
+    /// **Idempotent:** Yes (event delivery is idempotent)
+    /// **Operations:**
+    /// - Raises external event to target orchestration
+    pub const RAISE_EVENT: &str = "toygres-orchestrations::activity::raise-event";
 
     /// CMS-related activities
     pub mod cms {
