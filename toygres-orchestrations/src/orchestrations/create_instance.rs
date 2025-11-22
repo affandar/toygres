@@ -4,6 +4,7 @@ use duroxide::OrchestrationContext;
 use crate::names::orchestrations;
 use crate::types::{CreateInstanceInput, CreateInstanceOutput, DeleteInstanceInput, InstanceActorInput};
 use crate::activity_names::activities;
+use std::time::Duration;
 use crate::activity_types::{
     DeployPostgresInput, DeployPostgresOutput,
     WaitForReadyInput, WaitForReadyOutput,
@@ -91,7 +92,7 @@ async fn create_instance_impl(
     storage_size_gb: i32,
     use_load_balancer: bool,
 ) -> Result<CreateInstanceOutput, String> {
-    let start_time_ms = ctx.utcnow_ms().await
+    let start_time = ctx.utcnow().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
     // Step 1: Deploy PostgreSQL
@@ -133,9 +134,11 @@ async fn create_instance_impl(
         
         // Check if pod is ready
         if wait_output.is_ready {
-            let end_time_ms = ctx.utcnow_ms().await
+            let end_time = ctx.utcnow().await
                 .map_err(|e| format!("Failed to get end time: {}", e))?;
-            let elapsed = (end_time_ms - start_time_ms) / 1000; // Convert ms to seconds
+            let elapsed = end_time.duration_since(start_time)
+                .map_err(|e| format!("Failed to calculate duration: {}", e))?
+                .as_secs();
             ctx.trace_info(format!("Pod ready (phase: {}, took {} seconds)", wait_output.pod_phase, elapsed));
             break;
         }
@@ -150,12 +153,14 @@ async fn create_instance_impl(
                                wait_output.pod_phase, attempt, max_attempts));
         
         // Wait 5 seconds using Duroxide timer (deterministic)
-        ctx.schedule_timer(5000).into_timer().await; // 5000 milliseconds = 5 seconds
+        ctx.schedule_timer(Duration::from_secs(5)).into_timer().await;
     }
     
-    let end_time_ms = ctx.utcnow_ms().await
+    let end_time = ctx.utcnow().await
         .map_err(|e| format!("Failed to get end time: {}", e))?;
-    let deployment_time = (end_time_ms - start_time_ms) / 1000; // Convert ms to seconds
+    let deployment_time = end_time.duration_since(start_time)
+        .map_err(|e| format!("Failed to calculate duration: {}", e))?
+        .as_secs();
     
     // Step 3: Get connection strings
     ctx.trace_info("Step 3: Getting connection strings");

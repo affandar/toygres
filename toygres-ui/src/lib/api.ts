@@ -167,6 +167,17 @@ export const api = {
     });
   },
 
+  async raiseEvent(id: string, eventName: string, eventData: string): Promise<{
+    instance_id: string;
+    event_name: string;
+    raised: boolean;
+  }> {
+    return fetchJson(`${API_BASE}/api/server/orchestrations/${id}/raise-event`, {
+      method: 'POST',
+      body: JSON.stringify({ event_name: eventName, event_data: eventData }),
+    });
+  },
+
   // Logs
   async getLogs(limit?: number, filter?: string): Promise<string[]> {
     const params = new URLSearchParams();

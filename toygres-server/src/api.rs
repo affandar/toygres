@@ -38,6 +38,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/server/orchestrations/:id", get(get_orchestration))
         .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
         .route("/api/server/orchestrations/:id/recreate", post(recreate_orchestration))
+        .route("/api/server/orchestrations/:id/raise-event", post(raise_event_to_orchestration))
         .route("/api/server/logs", get(get_logs))
         .layer(cors)
         .with_state(state)
@@ -570,7 +571,8 @@ async fn get_orchestration(
     // Check if management features are available
     if !state.duroxide_client.has_management_capability() {
         // Fall back to basic status check
-        let status = state.duroxide_client.get_orchestration_status(&id).await;
+        let status = state.duroxide_client.get_orchestration_status(&id).await
+            .map_err(|e| AppError::Internal(format!("Failed to get orchestration status: {}", e)))?;
         
         let (status_str, output) = match &status {
             duroxide::OrchestrationStatus::Running { .. } => ("Running".to_string(), None),
@@ -593,7 +595,8 @@ async fn get_orchestration(
         .get_instance_info(&id)
         .await
         .map_err(|e| {
-            if e.contains("not found") {
+            let error_msg = format!("{:?}", e);
+            if error_msg.contains("not found") || error_msg.contains("NotFound") {
                 AppError::NotFound(format!("Orchestration '{}' not found", id))
             } else {
                 AppError::Internal(format!("Failed to get instance info: {}", e))
@@ -611,7 +614,8 @@ async fn get_orchestration(
     // Get output if the orchestration completed or failed
     let output = if info.status == "Completed" || info.status == "Failed" {
         // Use get_orchestration_status to get the output
-        let status = state.duroxide_client.get_orchestration_status(&id).await;
+        let status = state.duroxide_client.get_orchestration_status(&id).await
+            .map_err(|e| AppError::Internal(format!("Failed to get orchestration status: {}", e)))?;
         match status {
             duroxide::OrchestrationStatus::Completed { output, .. } => Some(output),
             duroxide::OrchestrationStatus::Failed { details, .. } => Some(format!("{:?}", details)),
@@ -691,6 +695,31 @@ async fn cancel_orchestration(
         "Orchestration cancellation via management API not yet available in duroxide. \
          This feature requires duroxide Client to expose a cancel_orchestration method.".to_string()
     ))
+}
+
+async fn raise_event_to_orchestration(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let event_name = req.get("event_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("Missing event_name".to_string()))?;
+    
+    let event_data = req.get("event_data")
+        .and_then(|v| v.as_str())
+        .unwrap_or("{}");
+    
+    state.duroxide_client
+        .raise_event(&id, event_name, event_data)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to raise event: {}", e)))?;
+    
+    Ok(Json(serde_json::json!({
+        "instance_id": id,
+        "event_name": event_name,
+        "raised": true,
+    })))
 }
 
 async fn recreate_orchestration(

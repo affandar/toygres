@@ -37,7 +37,7 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
     
     // Configure runtime options
     let mut runtime_options = RuntimeOptions::default();
-    runtime_options.worker_lock_timeout_secs = 300; // 5 minutes
+    runtime_options.worker_lock_timeout = std::time::Duration::from_secs(300); // 5 minutes
     
     // Start Duroxide runtime
     tracing::info!("Starting Duroxide runtime with 5-minute activity timeout");

@@ -12,6 +12,9 @@ export function Orchestrations() {
   const [expandedEvents, setExpandedEvents] = useState<Set<number>>(new Set());
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showRecreateModal, setShowRecreateModal] = useState(false);
+  const [showRaiseEventModal, setShowRaiseEventModal] = useState(false);
+  const [eventName, setEventName] = useState('InstanceDeleted');
+  const [eventData, setEventData] = useState('{}');
   const [historyLimit, setHistoryLimit] = useState<'full' | '5' | '10'>('5');
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const queryClient = useQueryClient();
@@ -54,6 +57,19 @@ export function Orchestrations() {
     },
   });
 
+  const raiseEventMutation = useMutation({
+    mutationFn: ({ id, name, data }: { id: string; name: string; data: string }) =>
+      api.raiseEvent(id, name, data),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['orchestration', selectedOrch, historyLimit] });
+      showToast('success', `Event "${data.event_name}" raised successfully`);
+      setShowRaiseEventModal(false);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to raise event: ${error.message}`);
+    },
+  });
+
   const handleCancel = () => {
     if (selectedOrch) {
       cancelMutation.mutate(selectedOrch);
@@ -63,6 +79,12 @@ export function Orchestrations() {
   const handleRecreate = () => {
     if (selectedOrch) {
       recreateMutation.mutate(selectedOrch);
+    }
+  };
+
+  const handleRaiseEvent = () => {
+    if (selectedOrch) {
+      raiseEventMutation.mutate({ id: selectedOrch, name: eventName, data: eventData });
     }
   };
 
@@ -281,6 +303,15 @@ export function Orchestrations() {
                     >
                       <RefreshCw className="h-4 w-4 mr-1" />
                       Recreate
+                    </Button>
+                  )}
+                  {orchDetail.status === 'Running' && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowRaiseEventModal(true)}
+                    >
+                      🔔 Raise Event
                     </Button>
                   )}
                   <Button
@@ -510,6 +541,80 @@ export function Orchestrations() {
                     disabled={recreateMutation.isPending}
                   >
                     {recreateMutation.isPending ? 'Recreating...' : 'Recreate'}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        )}
+
+        {/* Raise Event Modal */}
+        {showRaiseEventModal && orchDetail && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+            <Card className="w-full max-w-lg mx-4">
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <CardTitle>Raise External Event</CardTitle>
+                  <button
+                    onClick={() => setShowRaiseEventModal(false)}
+                    className="text-muted-foreground hover:text-foreground"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-muted/50 border rounded-md p-3 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Target Instance:</span>
+                    <code className="text-xs">{selectedOrch}</code>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Status:</span>
+                    <span className="text-xs">{orchDetail.status}</span>
+                  </div>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Event Name
+                  </label>
+                  <input
+                    type="text"
+                    value={eventName}
+                    onChange={(e) => setEventName(e.target.value)}
+                    placeholder="e.g., InstanceDeleted"
+                    className="w-full border rounded-md px-3 py-2 text-sm"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Event Data (JSON)
+                  </label>
+                  <textarea
+                    value={eventData}
+                    onChange={(e) => setEventData(e.target.value)}
+                    placeholder='{"key": "value"}'
+                    rows={4}
+                    className="w-full border rounded-md px-3 py-2 text-sm font-mono"
+                  />
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  ⚠️ Debug feature: This will raise an external event to the orchestration. 
+                  The orchestration must be waiting for this event via schedule_wait().
+                </p>
+                <div className="flex justify-end space-x-3 pt-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowRaiseEventModal(false)}
+                    disabled={raiseEventMutation.isPending}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    onClick={handleRaiseEvent}
+                    disabled={raiseEventMutation.isPending}
+                  >
+                    {raiseEventMutation.isPending ? 'Raising...' : 'Raise Event'}
                   </Button>
                 </div>
               </CardContent>

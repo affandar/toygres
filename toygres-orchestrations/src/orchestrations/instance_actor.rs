@@ -14,6 +14,7 @@
 /// The orchestration exits gracefully when it detects the instance is deleted/deleting.
 
 use duroxide::OrchestrationContext;
+use std::time::Duration;
 
 use crate::activity_names::activities;
 use crate::activity_types::{
@@ -70,7 +71,7 @@ pub async fn instance_actor_orchestration(
             ctx.trace_warn("No connection string available yet, skipping health check");
             
             // Still continue-as-new to try again later
-            ctx.schedule_timer(30000).into_timer().await; // 30 seconds = 30000 milliseconds
+            ctx.schedule_timer(Duration::from_secs(30)).into_timer().await;
             ctx.trace_info("Restarting instance actor with continue-as-new");
             
             let input_json = serde_json::to_string(&input)
@@ -83,7 +84,7 @@ pub async fn instance_actor_orchestration(
     };
     
     // Step 3: Test connection and measure response time
-    let start_time_ms = ctx.utcnow_ms().await
+    let start_time = ctx.utcnow().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
     let health_result = ctx
@@ -96,9 +97,11 @@ pub async fn instance_actor_orchestration(
         .into_activity_typed::<TestConnectionOutput>()
         .await;
     
-    let end_time_ms = ctx.utcnow_ms().await
+    let end_time = ctx.utcnow().await
         .map_err(|e| format!("Failed to get end time: {}", e))?;
-    let response_time_ms = (end_time_ms - start_time_ms) as i32;
+    let response_time_ms = end_time.duration_since(start_time)
+        .map_err(|e| format!("Failed to calculate duration: {}", e))?
+        .as_millis() as i32;
     
     // Step 4: Determine health status and extract details
     let (status, postgres_version, error_message) = match health_result {
@@ -144,7 +147,7 @@ pub async fn instance_actor_orchestration(
     ctx.trace_info(format!("Health check complete, status: {}", status));
     
     // Step 7: Wait for either 30 seconds OR deletion signal (whichever comes first)
-    let timer = ctx.schedule_timer(30000); // 30 seconds = 30000 milliseconds
+    let timer = ctx.schedule_timer(Duration::from_secs(30));
     let deletion_signal = ctx.schedule_wait("InstanceDeleted");
     
     let (winner_index, _) = ctx.select2(timer, deletion_signal).await;

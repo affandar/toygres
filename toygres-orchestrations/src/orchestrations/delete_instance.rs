@@ -9,7 +9,6 @@ use crate::activity_types::{
     FreeDnsNameInput, FreeDnsNameOutput,
     GetInstanceByK8sNameInput, GetInstanceByK8sNameOutput,
     DeleteInstanceRecordInput, DeleteInstanceRecordOutput,
-    RaiseEventInput, RaiseEventOutput,
 };
 
 pub async fn delete_instance_orchestration(
@@ -74,29 +73,7 @@ pub async fn delete_instance_orchestration(
     
     ctx.trace_info(format!("Instance deletion complete (deleted: {})", delete_output.deleted));
     
-    // Step 2: Signal the instance actor to stop (if it exists)
-    if let Some(actor_id) = instance_actor_id {
-        ctx.trace_info(format!("Sending InstanceDeleted signal to actor '{}'", actor_id));
-        
-        let raise_result = ctx
-            .schedule_activity_typed::<RaiseEventInput, RaiseEventOutput>(
-                activities::RAISE_EVENT,
-                &RaiseEventInput {
-                    instance_id: actor_id.clone(),
-                    event_name: "InstanceDeleted".to_string(),
-                    event_data: "{}".to_string(),
-                },
-            )
-            .into_activity_typed::<RaiseEventOutput>()
-            .await;
-        
-        match raise_result {
-            Ok(_) => ctx.trace_info("Instance actor notified of deletion"),
-            Err(e) => ctx.trace_warn(format!("Failed to notify instance actor: {}", e)),
-        }
-    }
-    
-    // Mark as deleted state
+    // Mark as deleted state (instance actor will detect this and exit gracefully)
     let update_input = UpdateInstanceStateInput {
         k8s_name: input.name.clone(),
         state: "deleted".to_string(),
