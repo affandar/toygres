@@ -34,17 +34,49 @@ pub async fn instance_actor_orchestration(
         input.k8s_name, input.orchestration_id
     ));
     
-    // Step 1: Get instance connection string from CMS
-    let conn_info = ctx
-        .schedule_activity_typed::<GetInstanceConnectionInput, GetInstanceConnectionOutput>(
-            activities::cms::GET_INSTANCE_CONNECTION,
-            &GetInstanceConnectionInput {
-                k8s_name: input.k8s_name.clone(),
-            },
-        )
-        .into_activity_typed::<GetInstanceConnectionOutput>()
-        .await
-        .map_err(|e| format!("Failed to get instance connection: {}", e))?;
+    // Step 1: Get instance connection string from CMS (with retries)
+    let max_attempts = 3;
+    let retry_delay = Duration::from_secs(5);
+    let mut last_error = String::new();
+    let mut conn_info = None;
+    
+    for attempt in 1..=max_attempts {
+        let result = ctx
+            .schedule_activity_typed::<GetInstanceConnectionInput, GetInstanceConnectionOutput>(
+                activities::cms::GET_INSTANCE_CONNECTION,
+                &GetInstanceConnectionInput {
+                    k8s_name: input.k8s_name.clone(),
+                },
+            )
+            .into_activity_typed::<GetInstanceConnectionOutput>()
+            .await;
+        
+        match result {
+            Ok(info) => {
+                conn_info = Some(info);
+                break;
+            }
+            Err(e) => {
+                last_error = format!("Failed to get instance connection: {}", e);
+                
+                if attempt < max_attempts {
+                    ctx.trace_warn(format!(
+                        "Failed to get instance connection (attempt {}/{}), retrying in 5 seconds: {}",
+                        attempt, max_attempts, e
+                    ));
+                    // Wait before retrying using duroxide timer
+                    ctx.schedule_timer(retry_delay).into_timer().await;
+                } else {
+                    ctx.trace_error(format!(
+                        "Failed to get instance connection after {} attempts: {}",
+                        max_attempts, e
+                    ));
+                }
+            }
+        }
+    }
+    
+    let conn_info = conn_info.ok_or(last_error)?;
     
     // Step 2: Check if instance still exists
     if !conn_info.found {
