@@ -25,3 +25,6 @@ Thumbs.db
 # Scripts output
 scripts/*.log
 
+# Process IDs
+.pids/
+

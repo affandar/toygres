@@ -1,0 +1,35 @@
+# Example: Run toygres-server in Docker with Loki logging
+# This is for reference - you're currently running toygres outside Docker
+
+version: '3.8'
+
+services:
+  toygres-server:
+    image: toygres-server:latest  # You'd need to build this
+    container_name: toygres-server
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - DUROXIDE_OBSERVABILITY_ENABLED=true
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+      - DUROXIDE_LOG_FORMAT=json
+      - DUROXIDE_LOG_LEVEL=info
+    # Docker Loki logging driver
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://localhost:3100/loki/api/v1/push"
+        loki-batch-size: "400"
+        loki-retries: "2"
+        loki-max-backoff: "800ms"
+        loki-timeout: "1s"
+        labels: "job,level,service"
+        loki-external-labels: "job=toygres,service=toygres-server"
+    networks:
+      - toygres-monitoring
+
+networks:
+  toygres-monitoring:
+    external: true
+    name: toygres_toygres-monitoring
+
+

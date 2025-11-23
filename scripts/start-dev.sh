@@ -20,6 +20,12 @@ fi
 # Load .env
 source "$PROJECT_ROOT/.env"
 
+# Load observability config if available
+if [[ -f "$PROJECT_ROOT/observability/env.local.example" ]]; then
+    echo "📊 Loading observability configuration..."
+    source "$PROJECT_ROOT/observability/env.local.example"
+fi
+
 # Check DATABASE_URL
 if [[ -z "${DATABASE_URL:-}" ]]; then
     echo "❌ Error: DATABASE_URL not set in .env"
@@ -41,6 +47,14 @@ cd "$PROJECT_ROOT"
 # Start backend
 echo "🚀 Starting Toygres server..."
 ./toygres server start
+
+# Start log forwarder if Loki is available
+if curl -s http://localhost:3100/ready > /dev/null 2>&1; then
+    echo "📊 Starting log forwarder to Loki..."
+    nohup ./scripts/push-logs-to-loki.sh > /dev/null 2>&1 &
+    LOG_FORWARDER_PID=$!
+    echo "   Log forwarder PID: $LOG_FORWARDER_PID"
+fi
 
 # Wait for backend to be ready
 echo "⏳ Waiting for backend to be ready..."

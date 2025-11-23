@@ -13,9 +13,9 @@ authors = ["Affan Dar"]
 license = "MIT"
 
 [workspace.dependencies]
-# Duroxide framework
-duroxide = { git = "https://github.com/affandar/duroxide" }
-duroxide-pg = { git = "https://github.com/affandar/duroxide-pg" }
+# Duroxide framework (using local paths for development)
+duroxide = { path = "../duroxide", features = ["observability"] }
+duroxide-pg = { path = "../duroxide-pg" }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
