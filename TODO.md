@@ -1,5 +1,6 @@
 # TODOs for Toygres
 
+- Ergonomics; change string literals for activity/orch names to fn names
 - Events!!
 - LLM enable
 - Hook up with standard metrics & monitors etc
