@@ -22,7 +22,7 @@ cd /path/to/toygres
 ```
 
 **What this does:**
-- Starts 5 Docker containers (OTLP Collector, Prometheus, Loki, Promtail, Grafana)
+- Starts 4 Docker containers (OTLP Collector, Prometheus, Loki, Grafana)
 - Auto-provisions datasources in Grafana
 - Loads the Toygres dashboard
 - Exposes services on localhost
@@ -200,7 +200,7 @@ Current setup expects logs on stdout. To fix:
    cargo run --bin toygres-server -- server > logs/toygres.log 2>&1 &
    ```
 
-2. Or update `promtail-config.yaml` to scrape from stdout (advanced)
+2. Logs are automatically sent via OTLP to OTEL Collector → Loki
 
 ## 📦 What Gets Deployed
 
@@ -209,7 +209,6 @@ Docker Containers:
 ├── toygres-otel-collector   (port 4317) - Receives OTLP metrics
 ├── toygres-prometheus        (port 9090) - Stores metrics
 ├── toygres-loki             (port 3100) - Stores logs
-├── toygres-promtail         (scraping)  - Ships logs
 └── toygres-grafana          (port 3001) - Dashboards
 
 Data Volumes:

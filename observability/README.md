@@ -7,10 +7,9 @@ Complete observability stack for Toygres using Duroxide's OpenTelemetry metrics 
 This directory contains the full observability stack configuration for both **local development** (Docker Compose) and **production deployment** (AKS/Kubernetes).
 
 **Stack Components:**
-- **OpenTelemetry Collector** - Receives OTLP metrics from Duroxide
+- **OpenTelemetry Collector** - Receives OTLP metrics/logs, exports to Prometheus/Loki
 - **Prometheus** - Time-series metrics storage
-- **Loki** - Log aggregation (JSON structured logs)
-- **Promtail** - Log shipping to Loki
+- **Loki** - Log aggregation (receives logs via OTLP from OTEL Collector)
 - **Grafana** - Dashboards and visualization
 
 ## Quick Start (Local Development)
@@ -143,7 +142,6 @@ observability/
 ├── otel-collector-config.yaml    # OTLP → Prometheus export
 ├── prometheus.yml                 # Prometheus scrape config
 ├── loki-config.yaml              # Loki storage and limits
-├── promtail-config.yaml          # Log shipping config
 ├── grafana/
 │   ├── provisioning/
 │   │   ├── datasources/          # Auto-provision Prometheus & Loki
@@ -259,8 +257,8 @@ The toygres-server automatically picks up the environment:
 
 2. Write logs to the correct directory:
    ```bash
-   # Logs should go to: ./logs/*.log
-   # Promtail mounts: ./logs:/var/log/toygres:ro
+   # Logs are exported via OTLP to OTEL Collector
+   # Backup logs: ~/.toygres/server.log
    ```
 
 ## Advanced: Custom Dashboards

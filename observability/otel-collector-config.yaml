@@ -31,6 +31,12 @@ exporters:
     sampling_thereafter: 200
 
 service:
+  # Enable detailed logging for debugging
+  telemetry:
+    logs:
+      level: debug
+      development: true
+  
   pipelines:
     metrics:
       receivers: [otlp]

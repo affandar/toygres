@@ -34,7 +34,7 @@ services:
     depends_on:
       - otel-collector
 
-  # Loki - log aggregation for JSON logs
+  # Loki - log aggregation (receives logs from OTEL Collector via OTLP)
   loki:
     image: grafana/loki:latest
     container_name: toygres-loki
@@ -46,22 +46,6 @@ services:
       - "3100:3100"
     networks:
       - toygres-monitoring
-
-  # Promtail - ships logs from toygres to Loki
-  # Commented out for now due to Docker Desktop volume mount issues on macOS
-  # You can still use Loki by pushing logs directly or using Docker logs
-  # promtail:
-  #   image: grafana/promtail:latest
-  #   container_name: toygres-promtail
-  #   command: -config.file=/etc/promtail/config.yaml
-  #   volumes:
-  #     - ./observability/promtail-config.yaml:/etc/promtail/config.yaml
-  #     - /var/log:/var/log:ro
-  #     - ./logs:/var/log/toygres:ro  # Mount toygres logs here
-  #   networks:
-  #     - toygres-monitoring
-  #   depends_on:
-  #     - loki
 
   # Grafana - visualization and dashboards
   grafana:
