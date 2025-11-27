@@ -1,6 +1,6 @@
 //! Create PostgreSQL instance orchestration
 
-use duroxide::OrchestrationContext;
+use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 use crate::names::orchestrations;
 use crate::types::{CreateInstanceInput, CreateInstanceOutput, DeleteInstanceInput, InstanceActorInput};
 use crate::activity_names::activities;
@@ -172,9 +172,18 @@ async fn create_instance_impl(
         dns_label: input.dns_label.clone(),
     };
     
+    // Get connection strings with retry - Azure LoadBalancer IP assignment can be slow
     let conn_output = ctx
-        .schedule_activity_typed::<GetConnectionStringsInput, GetConnectionStringsOutput>(activities::GET_CONNECTION_STRINGS, &conn_input)
-        .into_activity_typed::<GetConnectionStringsOutput>()
+        .schedule_activity_with_retry_typed::<GetConnectionStringsInput, GetConnectionStringsOutput>(
+            activities::GET_CONNECTION_STRINGS,
+            &conn_input,
+            RetryPolicy::new(5)
+                .with_backoff(BackoffStrategy::Linear {
+                    base: Duration::from_secs(2),
+                    max: Duration::from_secs(10),
+                })
+                .with_timeout(Duration::from_secs(120)),
+        )
         .await?;
     
     ctx.trace_info("Connection strings generated");
@@ -188,9 +197,19 @@ async fn create_instance_impl(
         connection_string: test_connection_string,
     };
     
+    // Test connection with retry - PostgreSQL might still be initializing
     let test_output = ctx
-        .schedule_activity_typed::<TestConnectionInput, TestConnectionOutput>(activities::TEST_CONNECTION, &test_input)
-        .into_activity_typed::<TestConnectionOutput>()
+        .schedule_activity_with_retry_typed::<TestConnectionInput, TestConnectionOutput>(
+            activities::TEST_CONNECTION,
+            &test_input,
+            RetryPolicy::new(5)
+                .with_backoff(BackoffStrategy::Exponential {
+                    base: Duration::from_secs(2),
+                    multiplier: 2.0,
+                    max: Duration::from_secs(30),
+                })
+                .with_timeout(Duration::from_secs(60)),
+        )
         .await?;
     
     ctx.trace_info(format!("PostgreSQL version: {}", test_output.version));

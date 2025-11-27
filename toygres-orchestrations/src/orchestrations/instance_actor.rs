@@ -13,7 +13,7 @@
 /// 
 /// The orchestration exits gracefully when it detects the instance is deleted/deleting.
 
-use duroxide::OrchestrationContext;
+use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 use std::time::Duration;
 
 use crate::activity_names::activities;
@@ -34,49 +34,24 @@ pub async fn instance_actor_orchestration(
         input.k8s_name, input.orchestration_id
     ));
     
-    // Step 1: Get instance connection string from CMS (with retries)
-    let max_attempts = 3;
-    let retry_delay = Duration::from_secs(5);
-    let mut last_error = String::new();
-    let mut conn_info = None;
-    
-    for attempt in 1..=max_attempts {
-        let result = ctx
-            .schedule_activity_typed::<GetInstanceConnectionInput, GetInstanceConnectionOutput>(
-                activities::cms::GET_INSTANCE_CONNECTION,
-                &GetInstanceConnectionInput {
-                    k8s_name: input.k8s_name.clone(),
-                },
-            )
-            .into_activity_typed::<GetInstanceConnectionOutput>()
-            .await;
-        
-        match result {
-            Ok(info) => {
-                conn_info = Some(info);
-                break;
-            }
-            Err(e) => {
-                last_error = format!("Failed to get instance connection: {}", e);
-                
-                if attempt < max_attempts {
-                    ctx.trace_warn(format!(
-                        "Failed to get instance connection (attempt {}/{}), retrying in 5 seconds: {}",
-                        attempt, max_attempts, e
-                    ));
-                    // Wait before retrying using duroxide timer
-                    ctx.schedule_timer(retry_delay).into_timer().await;
-                } else {
-                    ctx.trace_error(format!(
-                        "Failed to get instance connection after {} attempts: {}",
-                        max_attempts, e
-                    ));
-                }
-            }
-        }
-    }
-    
-    let conn_info = conn_info.ok_or(last_error)?;
+    // Step 1: Get instance connection string from CMS
+    // Use built-in retry with exponential backoff for resilience against transient DB issues
+    let conn_info = ctx
+        .schedule_activity_with_retry_typed::<GetInstanceConnectionInput, GetInstanceConnectionOutput>(
+            activities::cms::GET_INSTANCE_CONNECTION,
+            &GetInstanceConnectionInput {
+                k8s_name: input.k8s_name.clone(),
+            },
+            RetryPolicy::new(3)
+                .with_backoff(BackoffStrategy::Exponential {
+                    base: Duration::from_secs(2),
+                    multiplier: 2.0,
+                    max: Duration::from_secs(10),
+                })
+                .with_timeout(Duration::from_secs(15)),
+        )
+        .await
+        .map_err(|e| format!("Failed to get instance connection after 3 retries: {}", e))?;
     
     // Step 2: Check if instance still exists
     if !conn_info.found {
@@ -116,17 +91,23 @@ pub async fn instance_actor_orchestration(
     };
     
     // Step 3: Test connection and measure response time
+    // Use retry with linear backoff - database might be temporarily busy
     let start_time = ctx.utcnow().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
     let health_result = ctx
-        .schedule_activity_typed::<TestConnectionInput, TestConnectionOutput>(
+        .schedule_activity_with_retry_typed::<TestConnectionInput, TestConnectionOutput>(
             activities::TEST_CONNECTION,
             &TestConnectionInput {
                 connection_string: connection_string.clone(),
             },
+            RetryPolicy::new(3)
+                .with_backoff(BackoffStrategy::Linear {
+                    base: Duration::from_secs(1),
+                    max: Duration::from_secs(5),
+                })
+                .with_timeout(Duration::from_secs(30)),
         )
-        .into_activity_typed::<TestConnectionOutput>()
         .await;
     
     let end_time = ctx.utcnow().await

@@ -19,3 +19,5 @@ cd /Users/affandar/workshop/toygres
 # Start server
 cargo run --bin toygres-server -- standalone --port 8080
 
+
+

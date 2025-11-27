@@ -1,6 +1,7 @@
 //! Delete PostgreSQL instance orchestration
 
-use duroxide::OrchestrationContext;
+use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
+use std::time::Duration;
 use crate::types::{DeleteInstanceInput, DeleteInstanceOutput};
 use crate::activity_names::activities;
 use crate::activity_types::{
@@ -22,16 +23,21 @@ pub async fn delete_instance_orchestration(
     
     let namespace = input.namespace.clone().unwrap_or_else(|| "toygres".to_string());
     
+    // Get CMS record with retry for resilience
     let cms_record = ctx
-        .schedule_activity_typed::<GetInstanceByK8sNameInput, GetInstanceByK8sNameOutput>(
+        .schedule_activity_with_retry_typed::<GetInstanceByK8sNameInput, GetInstanceByK8sNameOutput>(
             activities::cms::GET_INSTANCE_BY_K8S_NAME,
             &GetInstanceByK8sNameInput {
                 k8s_name: input.name.clone(),
             },
+            RetryPolicy::new(3)
+                .with_backoff(BackoffStrategy::Fixed {
+                    delay: Duration::from_secs(2),
+                })
+                .with_timeout(Duration::from_secs(10)),
         )
-        .into_activity_typed::<GetInstanceByK8sNameOutput>()
         .await
-        .map_err(|e| format!("Failed to query CMS record: {}", e))?;
+        .map_err(|e| format!("Failed to query CMS record after retries: {}", e))?;
     
     // Store instance actor ID for later use
     let instance_actor_id = cms_record.instance_actor_orchestration_id.clone();
@@ -66,9 +72,19 @@ pub async fn delete_instance_orchestration(
         instance_name: input.name.clone(),
     };
     
+    // Delete K8s resources with retry - API calls can be flaky
     let delete_output = ctx
-        .schedule_activity_typed::<DeletePostgresInput, DeletePostgresOutput>(activities::DELETE_POSTGRES, &delete_input)
-        .into_activity_typed::<DeletePostgresOutput>()
+        .schedule_activity_with_retry_typed::<DeletePostgresInput, DeletePostgresOutput>(
+            activities::DELETE_POSTGRES,
+            &delete_input,
+            RetryPolicy::new(3)
+                .with_backoff(BackoffStrategy::Exponential {
+                    base: Duration::from_secs(1),
+                    multiplier: 2.0,
+                    max: Duration::from_secs(10),
+                })
+                .with_timeout(Duration::from_secs(60)),
+        )
         .await?;
     
     ctx.trace_info(format!("Instance deletion complete (deleted: {})", delete_output.deleted));
