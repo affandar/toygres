@@ -26,11 +26,6 @@ dotenvy = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 tracing-appender = "0.2"
-tracing-opentelemetry = "0.27"
-opentelemetry = "0.27"
-opentelemetry-otlp = { version = "0.27", features = ["logs"] }
-opentelemetry_sdk = { version = "0.27", features = ["rt-tokio", "logs"] }
-opentelemetry-appender-tracing = "0.27"
 anyhow = { workspace = true }
 uuid = { workspace = true }
 kube = { workspace = true }

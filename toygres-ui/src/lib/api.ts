@@ -178,6 +178,23 @@ export const api = {
     });
   },
 
+  // Orchestration Flows (Static Diagrams)
+  async listOrchestrationFlows(): Promise<Array<{
+    orchestration_name: string;
+    mermaid: string;
+    node_mappings: Array<{ node_id: string; activity_pattern: string }>;
+  }>> {
+    return fetchJson(`${API_BASE}/api/server/orchestration-flows`);
+  },
+
+  async getOrchestrationFlow(name: string): Promise<{
+    orchestration_name: string;
+    mermaid: string;
+    node_mappings: Array<{ node_id: string; activity_pattern: string }>;
+  }> {
+    return fetchJson(`${API_BASE}/api/server/orchestration-flows/${encodeURIComponent(name)}`);
+  },
+
   // Logs
   async getLogs(limit?: number, filter?: string): Promise<string[]> {
     const params = new URLSearchParams();

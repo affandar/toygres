@@ -13,7 +13,7 @@ pub mod activities {
     /// - Creates PersistentVolumeClaim
     /// - Creates StatefulSet
     /// - Creates Service (LoadBalancer or ClusterIP)
-    pub const DEPLOY_POSTGRES: &str = "toygres-activities::activity::deploy-postgres";
+    pub const DEPLOY_POSTGRES: &str = "toygres-orchestrations::activity::deploy-postgres";
     
     /// Delete PostgreSQL deployment from Kubernetes
     /// 
@@ -24,7 +24,7 @@ pub mod activities {
     /// - Deletes Service
     /// - Deletes StatefulSet
     /// - Deletes PersistentVolumeClaim
-    pub const DELETE_POSTGRES: &str = "toygres-activities::activity::delete-postgres";
+    pub const DELETE_POSTGRES: &str = "toygres-orchestrations::activity::delete-postgres";
     
     /// Wait for PostgreSQL pod to be ready
     /// 
@@ -34,7 +34,7 @@ pub mod activities {
     /// **Operations:**
     /// - Polls pod status until Ready condition is True
     /// - Timeout after configured duration
-    pub const WAIT_FOR_READY: &str = "toygres-activities::activity::wait-for-ready";
+    pub const WAIT_FOR_READY: &str = "toygres-orchestrations::activity::wait-for-ready";
     
     /// Get connection strings for PostgreSQL instance
     /// 
@@ -45,7 +45,7 @@ pub mod activities {
     /// - Gets LoadBalancer external IP
     /// - Constructs IP-based connection string
     /// - Constructs DNS-based connection string (if DNS label provided)
-    pub const GET_CONNECTION_STRINGS: &str = "toygres-activities::activity::get-connection-strings";
+    pub const GET_CONNECTION_STRINGS: &str = "toygres-orchestrations::activity::get-connection-strings";
     
     /// Test PostgreSQL connection
     /// 
@@ -56,7 +56,7 @@ pub mod activities {
     /// - Connects to PostgreSQL
     /// - Runs SELECT version() query
     /// - Returns version string
-    pub const TEST_CONNECTION: &str = "toygres-activities::activity::test-connection";
+    pub const TEST_CONNECTION: &str = "toygres-orchestrations::activity::test-connection";
     
     /// Raise an external event to another orchestration
     /// 

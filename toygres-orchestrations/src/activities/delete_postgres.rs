@@ -7,7 +7,10 @@ use k8s_openapi::api::apps::v1::StatefulSet;
 use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service};
 use kube::api::{Api, DeleteParams};
 
-pub async fn delete_postgres_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::delete-postgres";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: DeletePostgresInput,
 ) -> Result<DeletePostgresOutput, String> {

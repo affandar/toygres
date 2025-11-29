@@ -28,13 +28,21 @@ pub mod names;
 pub mod types;
 pub mod registry;
 
-// Activity exports
-pub mod activity_names;
+// Activity exports - activities module is public for IDE navigation (F12 to jump to implementation)
+pub mod activities;
 pub mod activity_types;
 pub mod k8s_client;
 
 mod orchestrations;
-mod activities;
+
+// Re-export orchestration flows for UI visualization
+pub mod flows {
+    pub use crate::orchestrations::flows::*;
+}
+
+// Deprecated: use activities module directly for better IDE navigation
+#[deprecated(note = "Use activities module directly for IDE navigation (F12 support)")]
+pub mod activity_names;
 
 // Re-export key types for convenience
 pub use types::*;

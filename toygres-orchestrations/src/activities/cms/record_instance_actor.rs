@@ -4,7 +4,10 @@ use crate::activity_types::{RecordInstanceActorInput, RecordInstanceActorOutput}
 
 use super::get_pool;
 
-pub async fn record_instance_actor_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-record-instance-actor";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: RecordInstanceActorInput,
 ) -> Result<RecordInstanceActorOutput, String> {

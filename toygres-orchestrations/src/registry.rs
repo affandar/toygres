@@ -2,8 +2,8 @@
 
 use duroxide::runtime::registry::ActivityRegistry;
 use duroxide::OrchestrationRegistry;
-use crate::activity_names::activities;
 use crate::names::orchestrations;
+use crate::activities;
 
 /// Create an OrchestrationRegistry with all Toygres orchestrations
 ///
@@ -42,65 +42,67 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
 /// ```
 pub fn create_activity_registry() -> ActivityRegistry {
     ActivityRegistry::builder()
+        // K8s activities
         .register_typed(
-            activities::DEPLOY_POSTGRES,
-            crate::activities::deploy_postgres::deploy_postgres_activity,
+            activities::deploy_postgres::NAME,
+            activities::deploy_postgres::activity,
         )
         .register_typed(
-            activities::DELETE_POSTGRES,
-            crate::activities::delete_postgres::delete_postgres_activity,
+            activities::delete_postgres::NAME,
+            activities::delete_postgres::activity,
         )
         .register_typed(
-            activities::WAIT_FOR_READY,
-            crate::activities::wait_for_ready::wait_for_ready_activity,
+            activities::wait_for_ready::NAME,
+            activities::wait_for_ready::activity,
         )
         .register_typed(
-            activities::GET_CONNECTION_STRINGS,
-            crate::activities::get_connection_strings::get_connection_strings_activity,
+            activities::get_connection_strings::NAME,
+            activities::get_connection_strings::activity,
         )
         .register_typed(
-            activities::TEST_CONNECTION,
-            crate::activities::test_connection::test_connection_activity,
+            activities::test_connection::NAME,
+            activities::test_connection::activity,
         )
         .register_typed(
-            activities::RAISE_EVENT,
-            crate::activities::raise_event::raise_event_activity,
+            activities::raise_event::NAME,
+            activities::raise_event::activity,
+        )
+        // CMS activities
+        .register_typed(
+            activities::cms::create_instance_record::NAME,
+            activities::cms::create_instance_record::activity,
         )
         .register_typed(
-            activities::cms::CREATE_INSTANCE_RECORD,
-            crate::activities::cms::create_instance_record::create_instance_record_activity,
+            activities::cms::update_instance_state::NAME,
+            activities::cms::update_instance_state::activity,
         )
         .register_typed(
-            activities::cms::UPDATE_INSTANCE_STATE,
-            crate::activities::cms::update_instance_state::update_instance_state_activity,
+            activities::cms::free_dns_name::NAME,
+            activities::cms::free_dns_name::activity,
         )
         .register_typed(
-            activities::cms::FREE_DNS_NAME,
-            crate::activities::cms::free_dns_name::free_dns_name_activity,
+            activities::cms::get_instance_by_k8s_name::NAME,
+            activities::cms::get_instance_by_k8s_name::activity,
         )
         .register_typed(
-            activities::cms::GET_INSTANCE_BY_K8S_NAME,
-            crate::activities::cms::get_instance_by_k8s_name::get_instance_by_k8s_name_activity,
+            activities::cms::get_instance_connection::NAME,
+            activities::cms::get_instance_connection::activity,
         )
         .register_typed(
-            activities::cms::GET_INSTANCE_CONNECTION,
-            crate::activities::cms::get_instance_connection::get_instance_connection_activity,
+            activities::cms::record_health_check::NAME,
+            activities::cms::record_health_check::activity,
         )
         .register_typed(
-            activities::cms::RECORD_HEALTH_CHECK,
-            crate::activities::cms::record_health_check::record_health_check_activity,
+            activities::cms::update_instance_health::NAME,
+            activities::cms::update_instance_health::activity,
         )
         .register_typed(
-            activities::cms::UPDATE_INSTANCE_HEALTH,
-            crate::activities::cms::update_instance_health::update_instance_health_activity,
+            activities::cms::record_instance_actor::NAME,
+            activities::cms::record_instance_actor::activity,
         )
         .register_typed(
-            activities::cms::RECORD_INSTANCE_ACTOR,
-            crate::activities::cms::record_instance_actor::record_instance_actor_activity,
-        )
-        .register_typed(
-            activities::cms::DELETE_INSTANCE_RECORD,
-            crate::activities::cms::delete_instance_record::delete_instance_record_activity,
+            activities::cms::delete_instance_record::NAME,
+            activities::cms::delete_instance_record::activity,
         )
         .build()
 }

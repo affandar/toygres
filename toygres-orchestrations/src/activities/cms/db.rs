@@ -1,26 +1,24 @@
-use once_cell::sync::OnceCell;
 use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
+use tokio::sync::OnceCell;
 
-static POOL: OnceCell<PgPool> = OnceCell::new();
+static POOL: OnceCell<PgPool> = OnceCell::const_new();
 
 pub(crate) async fn get_pool() -> Result<PgPool, String> {
-    if let Some(pool) = POOL.get() {
-        return Ok(pool.clone());
-    }
+    // Use get_or_try_init to safely handle concurrent initialization
+    let pool = POOL
+        .get_or_try_init(|| async {
+            let db_url = std::env::var("DATABASE_URL")
+                .map_err(|_| "DATABASE_URL not set".to_string())?;
 
-    let db_url = std::env::var("DATABASE_URL")
-        .map_err(|_| "DATABASE_URL not set".to_string())?;
+            PgPoolOptions::new()
+                .max_connections(10)
+                .connect(&db_url)
+                .await
+                .map_err(|e| format!("Failed to connect to database: {}", e))
+        })
+        .await?;
 
-    let pool = PgPoolOptions::new()
-        .max_connections(10)
-        .connect(&db_url)
-        .await
-        .map_err(|e| format!("Failed to connect to database: {}", e))?;
-
-    POOL.set(pool.clone())
-        .map_err(|_| "Failed to initialize global database pool".to_string())?;
-
-    Ok(pool)
+    Ok(pool.clone())
 }
 

@@ -3,7 +3,7 @@
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 use crate::names::orchestrations;
 use crate::types::{CreateInstanceInput, CreateInstanceOutput, DeleteInstanceInput, InstanceActorInput};
-use crate::activity_names::activities;
+use crate::activities::{self, cms};
 use std::time::Duration;
 use crate::activity_types::{
     DeployPostgresInput, DeployPostgresOutput,
@@ -43,7 +43,7 @@ pub async fn create_instance_orchestration(
     };
     
     ctx.schedule_activity_typed::<CreateInstanceRecordInput, CreateInstanceRecordOutput>(
-            activities::cms::CREATE_INSTANCE_RECORD,
+            cms::create_instance_record::NAME,
             &cms_input,
         )
         .into_activity_typed::<CreateInstanceRecordOutput>()
@@ -108,7 +108,7 @@ async fn create_instance_impl(
     };
     
     let _deploy_output = ctx
-        .schedule_activity_typed::<DeployPostgresInput, DeployPostgresOutput>(activities::DEPLOY_POSTGRES, &deploy_input)
+        .schedule_activity_typed::<DeployPostgresInput, DeployPostgresOutput>(activities::deploy_postgres::NAME, &deploy_input)
         .into_activity_typed::<DeployPostgresOutput>()
         .await?;
     
@@ -127,7 +127,7 @@ async fn create_instance_impl(
         };
         
         let wait_output = ctx
-            .schedule_activity_typed::<WaitForReadyInput, WaitForReadyOutput>(activities::WAIT_FOR_READY, &wait_input)
+            .schedule_activity_typed::<WaitForReadyInput, WaitForReadyOutput>(activities::wait_for_ready::NAME, &wait_input)
             .into_activity_typed::<WaitForReadyOutput>()
             .await
             .map_err(|e| format!("Failed to check pod status: {}", e))?;
@@ -175,7 +175,7 @@ async fn create_instance_impl(
     // Get connection strings with retry - Azure LoadBalancer IP assignment can be slow
     let conn_output = ctx
         .schedule_activity_with_retry_typed::<GetConnectionStringsInput, GetConnectionStringsOutput>(
-            activities::GET_CONNECTION_STRINGS,
+            activities::get_connection_strings::NAME,
             &conn_input,
             RetryPolicy::new(5)
                 .with_backoff(BackoffStrategy::Linear {
@@ -200,7 +200,7 @@ async fn create_instance_impl(
     // Test connection with retry - PostgreSQL might still be initializing
     let test_output = ctx
         .schedule_activity_with_retry_typed::<TestConnectionInput, TestConnectionOutput>(
-            activities::TEST_CONNECTION,
+            activities::test_connection::NAME,
             &test_input,
             RetryPolicy::new(5)
                 .with_backoff(BackoffStrategy::Exponential {
@@ -266,7 +266,7 @@ async fn update_cms_state(
 ) {
     if let Err(err) = ctx
         .schedule_activity_typed::<UpdateInstanceStateInput, UpdateInstanceStateOutput>(
-            activities::cms::UPDATE_INSTANCE_STATE,
+            cms::update_instance_state::NAME,
             &update_input,
         )
         .into_activity_typed::<UpdateInstanceStateOutput>()
@@ -306,7 +306,7 @@ async fn start_instance_actor(
     // Record the actor orchestration ID in CMS
     if let Err(err) = ctx
         .schedule_activity_typed::<RecordInstanceActorInput, RecordInstanceActorOutput>(
-            activities::cms::RECORD_INSTANCE_ACTOR,
+            cms::record_instance_actor::NAME,
             &RecordInstanceActorInput {
                 k8s_name: k8s_name.to_string(),
                 instance_actor_orchestration_id: actor_id,
@@ -337,7 +337,7 @@ async fn mark_instance_failed(
 
     if let Err(err) = ctx
         .schedule_activity_typed::<FreeDnsNameInput, FreeDnsNameOutput>(
-            activities::cms::FREE_DNS_NAME,
+            cms::free_dns_name::NAME,
             &FreeDnsNameInput {
                 k8s_name: k8s_name.to_string(),
             },

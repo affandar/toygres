@@ -4,7 +4,10 @@ use crate::activity_types::{UpdateInstanceHealthInput, UpdateInstanceHealthOutpu
 
 use super::get_pool;
 
-pub async fn update_instance_health_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-update-instance-health";
+
+pub async fn activity(
     _ctx: ActivityContext,
     input: UpdateInstanceHealthInput,
 ) -> Result<UpdateInstanceHealthOutput, String> {

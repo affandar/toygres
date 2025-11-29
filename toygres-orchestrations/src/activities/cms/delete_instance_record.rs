@@ -4,7 +4,10 @@ use crate::activity_types::{DeleteInstanceRecordInput, DeleteInstanceRecordOutpu
 
 use super::get_pool;
 
-pub async fn delete_instance_record_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-delete-instance-record";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: DeleteInstanceRecordInput,
 ) -> Result<DeleteInstanceRecordOutput, String> {

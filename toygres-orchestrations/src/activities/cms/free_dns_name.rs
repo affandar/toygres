@@ -5,7 +5,10 @@ use crate::activity_types::{FreeDnsNameInput, FreeDnsNameOutput};
 
 use super::get_pool;
 
-pub async fn free_dns_name_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-free-dns-name";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: FreeDnsNameInput,
 ) -> Result<FreeDnsNameOutput, String> {

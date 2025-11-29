@@ -10,7 +10,10 @@ use crate::activity_types::{
 
 use super::get_pool;
 
-pub async fn get_instance_by_k8s_name_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-get-instance-by-k8s-name";
+
+pub async fn activity(
     _ctx: ActivityContext,
     input: GetInstanceByK8sNameInput,
 ) -> Result<GetInstanceByK8sNameOutput, String> {

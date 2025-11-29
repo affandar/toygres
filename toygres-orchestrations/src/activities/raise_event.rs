@@ -6,6 +6,9 @@ use once_cell::sync::OnceCell;
 use std::sync::Arc;
 use duroxide::Client;
 
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::raise-event";
+
 static DUROXIDE_CLIENT: OnceCell<Arc<Client>> = OnceCell::new();
 
 /// Initialize the duroxide client for use in activities
@@ -21,7 +24,7 @@ fn get_client() -> Result<Arc<Client>, String> {
         .ok_or_else(|| "Duroxide client not initialized".to_string())
 }
 
-pub async fn raise_event_activity(
+pub async fn activity(
     ctx: ActivityContext,
     input: RaiseEventInput,
 ) -> Result<RaiseEventOutput, String> {

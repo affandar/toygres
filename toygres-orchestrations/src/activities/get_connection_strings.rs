@@ -7,7 +7,10 @@ use k8s_openapi::api::core::v1::Service;
 use kube::api::Api;
 use std::time::Duration;
 
-pub async fn get_connection_strings_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::get-connection-strings";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: GetConnectionStringsInput,
 ) -> Result<GetConnectionStringsOutput, String> {

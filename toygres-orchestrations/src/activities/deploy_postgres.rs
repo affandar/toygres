@@ -8,7 +8,10 @@ use k8s_openapi::api::apps::v1::StatefulSet;
 use kube::api::{Api, PostParams};
 use tera::{Tera, Context as TeraContext};
 
-pub async fn deploy_postgres_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::deploy-postgres";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: DeployPostgresInput,
 ) -> Result<DeployPostgresOutput, String> {

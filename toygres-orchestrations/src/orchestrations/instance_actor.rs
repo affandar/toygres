@@ -16,7 +16,7 @@
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 use std::time::Duration;
 
-use crate::activity_names::activities;
+use crate::activities::{self, cms};
 use crate::activity_types::{
     GetInstanceConnectionInput, GetInstanceConnectionOutput,
     TestConnectionInput, TestConnectionOutput,
@@ -38,17 +38,17 @@ pub async fn instance_actor_orchestration(
     // Use built-in retry with exponential backoff for resilience against transient DB issues
     let conn_info = ctx
         .schedule_activity_with_retry_typed::<GetInstanceConnectionInput, GetInstanceConnectionOutput>(
-            activities::cms::GET_INSTANCE_CONNECTION,
-            &GetInstanceConnectionInput {
-                k8s_name: input.k8s_name.clone(),
-            },
+                cms::get_instance_connection::NAME,
+                &GetInstanceConnectionInput {
+                    k8s_name: input.k8s_name.clone(),
+                },
             RetryPolicy::new(3)
                 .with_backoff(BackoffStrategy::Exponential {
                     base: Duration::from_secs(2),
                     multiplier: 2.0,
                     max: Duration::from_secs(10),
                 })
-                .with_timeout(Duration::from_secs(15)),
+                .with_timeout(Duration::from_secs(30)),
         )
         .await
         .map_err(|e| format!("Failed to get instance connection after 3 retries: {}", e))?;
@@ -97,7 +97,7 @@ pub async fn instance_actor_orchestration(
     
     let health_result = ctx
         .schedule_activity_with_retry_typed::<TestConnectionInput, TestConnectionOutput>(
-            activities::TEST_CONNECTION,
+            activities::test_connection::NAME,
             &TestConnectionInput {
                 connection_string: connection_string.clone(),
             },
@@ -131,7 +131,7 @@ pub async fn instance_actor_orchestration(
     // Step 5: Record health check in database
     let _record = ctx
         .schedule_activity_typed::<RecordHealthCheckInput, RecordHealthCheckOutput>(
-            activities::cms::RECORD_HEALTH_CHECK,
+            cms::record_health_check::NAME,
             &RecordHealthCheckInput {
                 k8s_name: input.k8s_name.clone(),
                 status: status.to_string(),
@@ -147,7 +147,7 @@ pub async fn instance_actor_orchestration(
     // Step 6: Update instance health status
     let _update = ctx
         .schedule_activity_typed::<UpdateInstanceHealthInput, UpdateInstanceHealthOutput>(
-            activities::cms::UPDATE_INSTANCE_HEALTH,
+            cms::update_instance_health::NAME,
             &UpdateInstanceHealthInput {
                 k8s_name: input.k8s_name.clone(),
                 health_status: status.to_string(),

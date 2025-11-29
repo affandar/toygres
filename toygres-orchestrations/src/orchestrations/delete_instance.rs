@@ -3,7 +3,7 @@
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 use std::time::Duration;
 use crate::types::{DeleteInstanceInput, DeleteInstanceOutput};
-use crate::activity_names::activities;
+use crate::activities::{self, cms};
 use crate::activity_types::{
     DeletePostgresInput, DeletePostgresOutput,
     UpdateInstanceStateInput, UpdateInstanceStateOutput,
@@ -26,7 +26,7 @@ pub async fn delete_instance_orchestration(
     // Get CMS record with retry for resilience
     let cms_record = ctx
         .schedule_activity_with_retry_typed::<GetInstanceByK8sNameInput, GetInstanceByK8sNameOutput>(
-            activities::cms::GET_INSTANCE_BY_K8S_NAME,
+            cms::get_instance_by_k8s_name::NAME,
             &GetInstanceByK8sNameInput {
                 k8s_name: input.name.clone(),
             },
@@ -75,7 +75,7 @@ pub async fn delete_instance_orchestration(
     // Delete K8s resources with retry - API calls can be flaky
     let delete_output = ctx
         .schedule_activity_with_retry_typed::<DeletePostgresInput, DeletePostgresOutput>(
-            activities::DELETE_POSTGRES,
+            activities::delete_postgres::NAME,
             &delete_input,
             RetryPolicy::new(3)
                 .with_backoff(BackoffStrategy::Exponential {
@@ -120,7 +120,7 @@ async fn update_cms_state(
 ) {
     if let Err(err) = ctx
         .schedule_activity_typed::<UpdateInstanceStateInput, UpdateInstanceStateOutput>(
-            activities::cms::UPDATE_INSTANCE_STATE,
+            cms::update_instance_state::NAME,
             &update_input,
         )
         .into_activity_typed::<UpdateInstanceStateOutput>()
@@ -136,7 +136,7 @@ async fn free_dns_name(
 ) {
     if let Err(err) = ctx
         .schedule_activity_typed::<FreeDnsNameInput, FreeDnsNameOutput>(
-            activities::cms::FREE_DNS_NAME,
+            cms::free_dns_name::NAME,
             &FreeDnsNameInput {
                 k8s_name: k8s_name.to_string(),
             },
@@ -156,7 +156,7 @@ async fn delete_cms_record(
     
     if let Err(err) = ctx
         .schedule_activity_typed::<DeleteInstanceRecordInput, DeleteInstanceRecordOutput>(
-            activities::cms::DELETE_INSTANCE_RECORD,
+            cms::delete_instance_record::NAME,
             &DeleteInstanceRecordInput {
                 k8s_name: k8s_name.to_string(),
             },

@@ -103,12 +103,12 @@ export function Config() {
           </CardHeader>
           <CardContent className="space-y-3">
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">Workers</span>
-              <span className="text-sm font-medium">2</span>
+              <span className="text-sm text-muted-foreground">Activity Workers</span>
+              <span className="text-sm font-medium">10</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">Orchestrators</span>
-              <span className="text-sm font-medium">2</span>
+              <span className="text-sm text-muted-foreground">Orchestration Workers</span>
+              <span className="text-sm font-medium">10</span>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-muted-foreground">Activity Timeout</span>

@@ -6,7 +6,10 @@ use crate::activity_types::{CreateInstanceRecordInput, CreateInstanceRecordOutpu
 
 use super::get_pool;
 
-pub async fn create_instance_record_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-create-instance-record";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: CreateInstanceRecordInput,
 ) -> Result<CreateInstanceRecordOutput, String> {

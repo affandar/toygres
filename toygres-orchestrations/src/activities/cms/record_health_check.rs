@@ -5,7 +5,10 @@ use crate::activity_types::{RecordHealthCheckInput, RecordHealthCheckOutput};
 
 use super::get_pool;
 
-pub async fn record_health_check_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-record-health-check";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: RecordHealthCheckInput,
 ) -> Result<RecordHealthCheckOutput, String> {

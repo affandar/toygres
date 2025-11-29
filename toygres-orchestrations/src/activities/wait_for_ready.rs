@@ -6,7 +6,10 @@ use crate::k8s_client::get_k8s_client;
 use k8s_openapi::api::core::v1::Pod;
 use kube::api::{Api, ListParams};
 
-pub async fn wait_for_ready_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::wait-for-ready";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: WaitForReadyInput,
 ) -> Result<WaitForReadyOutput, String> {

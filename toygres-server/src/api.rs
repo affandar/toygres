@@ -39,6 +39,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
         .route("/api/server/orchestrations/:id/recreate", post(recreate_orchestration))
         .route("/api/server/orchestrations/:id/raise-event", post(raise_event_to_orchestration))
+        .route("/api/server/orchestration-flows", get(list_orchestration_flows))
+        .route("/api/server/orchestration-flows/:name", get(get_orchestration_flow))
         .route("/api/server/logs", get(get_logs))
         .layer(cors)
         .with_state(state)
@@ -756,7 +758,7 @@ async fn recreate_orchestration(
     
     let input = events.iter()
         .find_map(|event| {
-            if let duroxide::Event::OrchestrationStarted { input, .. } = event {
+            if let duroxide::EventKind::OrchestrationStarted { input, .. } = &event.kind {
                 Some(input.clone())
             } else {
                 None
@@ -797,6 +799,57 @@ async fn recreate_orchestration(
         "original_instance_id": id,
         "orchestration_name": orch_name,
         "orchestration_version": orch_version,
+    })))
+}
+
+// ============================================================================
+// Orchestration Flows (Static Diagrams)
+// ============================================================================
+
+async fn list_orchestration_flows() -> Result<Json<Vec<serde_json::Value>>, AppError> {
+    use toygres_orchestrations::flows;
+    
+    let all_flows = flows::get_all_flows();
+    let result: Vec<serde_json::Value> = all_flows
+        .iter()
+        .map(|flow| {
+            serde_json::json!({
+                "orchestration_name": flow.orchestration_name,
+                "mermaid": flow.mermaid,
+                "node_mappings": flow.node_mappings.iter()
+                    .map(|(node_id, activity_pattern)| {
+                        serde_json::json!({
+                            "node_id": node_id,
+                            "activity_pattern": activity_pattern,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            })
+        })
+        .collect();
+    
+    Ok(Json(result))
+}
+
+async fn get_orchestration_flow(
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use toygres_orchestrations::flows;
+    
+    let flow = flows::get_flow_by_name(&name)
+        .ok_or_else(|| AppError::NotFound(format!("Flow for '{}' not found", name)))?;
+    
+    Ok(Json(serde_json::json!({
+        "orchestration_name": flow.orchestration_name,
+        "mermaid": flow.mermaid,
+        "node_mappings": flow.node_mappings.iter()
+            .map(|(node_id, activity_pattern)| {
+                serde_json::json!({
+                    "node_id": node_id,
+                    "activity_pattern": activity_pattern,
+                })
+            })
+            .collect::<Vec<_>>(),
     })))
 }
 

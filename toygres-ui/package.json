@@ -18,7 +18,8 @@
     "lucide-react": "^0.323.0",
     "clsx": "^2.1.0",
     "recharts": "^2.10.0",
-    "date-fns": "^3.3.0"
+    "date-fns": "^3.3.0",
+    "mermaid": "^11.4.0"
   },
   "devDependencies": {
     "@types/react": "^18.2.55",

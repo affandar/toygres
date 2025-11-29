@@ -4,7 +4,10 @@ use duroxide::ActivityContext;
 use crate::activity_types::{TestConnectionInput, TestConnectionOutput};
 use tokio_postgres::NoTls;
 
-pub async fn test_connection_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::test-connection";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: TestConnectionInput,
 ) -> Result<TestConnectionOutput, String> {

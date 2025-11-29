@@ -5,7 +5,10 @@ use crate::activity_types::{GetInstanceConnectionInput, GetInstanceConnectionOut
 
 use super::get_pool;
 
-pub async fn get_instance_connection_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-get-instance-connection";
+
+pub async fn activity(
     _ctx: ActivityContext,
     input: GetInstanceConnectionInput,
 ) -> Result<GetInstanceConnectionOutput, String> {

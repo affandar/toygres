@@ -6,7 +6,10 @@ use crate::activity_types::{UpdateInstanceStateInput, UpdateInstanceStateOutput}
 
 use super::get_pool;
 
-pub async fn update_instance_state_activity(
+/// Activity name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::activity::cms-update-instance-state";
+
+pub async fn activity(
     ctx: ActivityContext,
     input: UpdateInstanceStateInput,
 ) -> Result<UpdateInstanceStateOutput, String> {

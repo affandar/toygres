@@ -37,6 +37,8 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
     
     // Configure runtime options
     let mut runtime_options = RuntimeOptions::default();
+    runtime_options.orchestration_concurrency = 10;  // 10 orchestration workers (default: 2)
+    runtime_options.worker_concurrency = 10;         // 10 activity workers (default: 2)
     runtime_options.worker_lock_timeout = std::time::Duration::from_secs(300); // 5 minutes
     
     // Configure observability (metrics and structured logging)
@@ -66,7 +68,7 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
             
             log_format,
             log_level: std::env::var("DUROXIDE_LOG_LEVEL")
-                .unwrap_or_else(|_| "info".to_string()),
+                .unwrap_or_else(|_| "debug".to_string()),  // Default to debug
             
             service_name: "toygres".to_string(),
             service_version: Some(env!("CARGO_PKG_VERSION").to_string()),
@@ -84,7 +86,7 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
     }
     
     // Start Duroxide runtime
-    tracing::info!("Starting Duroxide runtime with 5-minute activity timeout");
+    tracing::info!("Starting Duroxide runtime: 10 orchestration workers, 10 activity workers, 5-minute activity timeout");
     let runtime = Runtime::start_with_options(
         store.clone(),
         activities,
