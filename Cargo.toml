@@ -13,9 +13,9 @@ authors = ["Affan Dar"]
 license = "MIT"
 
 [workspace.dependencies]
-# Duroxide framework (from GitHub)
-duroxide = { git = "https://github.com/affandar/duroxide", features = ["observability"] }
-duroxide-pg = { git = "https://github.com/affandar/duroxide-pg" }
+# Duroxide framework (from crates.io)
+duroxide = { version = "0.1", features = ["observability"] }
+duroxide-pg = { version = "0.1" }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
@@ -56,4 +56,5 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # UUID
 uuid = { version = "1.0", features = ["v4", "serde"] }
+
 

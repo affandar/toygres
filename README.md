@@ -1,6 +1,6 @@
 # Toygres
 
-A Rust-based control plane for hosting PostgreSQL containers as a service on Azure Kubernetes Service (AKS).
+A Rust-based toy control plane for hosting PostgreSQL containers as a service on Azure Kubernetes Service (AKS).
 
 ## Features
 
