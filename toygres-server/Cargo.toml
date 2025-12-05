@@ -36,6 +36,8 @@ clap = { version = "4.5", features = ["derive"] }
 tokio-postgres = "0.7"
 reqwest = { version = "0.11", features = ["json"] }
 chrono = { workspace = true }
+tower-cookies = "0.10"
+time = "0.3"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal"] }

@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { useToast } from '@/lib/toast';
 import { api } from '@/lib/api';
 import { copyToClipboard, getStateColor, getHealthColor, formatRelativeTime } from '@/lib/utils';
+import { InstanceLogs } from './InstanceLogs';
 
 export function InstanceDetail() {
   const { name } = useParams<{ name: string }>();
@@ -228,6 +229,11 @@ export function InstanceDetail() {
             )}
           </CardContent>
         </Card>
+      )}
+
+      {/* PostgreSQL Logs */}
+      {instance.state === 'running' && (
+        <InstanceLogs instanceName={name!} />
       )}
     </div>
   );

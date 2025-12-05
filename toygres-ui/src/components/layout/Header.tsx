@@ -1,8 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
-import { Server } from 'lucide-react';
+import { Server, LogOut } from 'lucide-react';
 import { api } from '@/lib/api';
+import { useAuth } from '@/lib/auth';
 
 export function Header() {
+  const { logout } = useAuth();
   const { data: status } = useQuery({
     queryKey: ['server-status'],
     queryFn: () => api.getServerStatus(),
@@ -33,6 +35,15 @@ export function Header() {
               </>
             )}
           </div>
+          
+          <button
+            onClick={logout}
+            className="flex items-center gap-2 px-3 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-accent rounded-md transition-colors"
+            title="Sign out"
+          >
+            <LogOut className="h-4 w-4" />
+            <span className="hidden sm:inline">Sign Out</span>
+          </button>
         </div>
       </div>
     </header>

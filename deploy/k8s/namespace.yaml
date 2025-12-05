@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: toygres-system
+  labels:
+    app.kubernetes.io/name: toygres
+    app.kubernetes.io/component: control-plane
+

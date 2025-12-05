@@ -65,6 +65,18 @@ export const api = {
     return fetchJson<InstanceDetail>(`${API_BASE}/api/instances/${name}`);
   },
 
+  async getInstanceLogs(name: string, tailLines: number = 200): Promise<{
+    instance_name: string;
+    k8s_name: string;
+    pod_name: string;
+    namespace: string;
+    tail_lines: number;
+    log_count: number;
+    logs: string[];
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/logs?tail_lines=${tailLines}`);
+  },
+
   async createInstance(data: {
     name: string;
     password: string;

@@ -1,0 +1,45 @@
+# Build artifacts
+target/
+*.rs.bk
+
+# Node modules
+node_modules/
+toygres-ui/node_modules/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Scripts (not needed in containers)
+scripts/
+
+# Local development files
+*.log
+.toygres/
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+deploy/k8s/
+deploy/*.sh
+
+# Misc
+.DS_Store
+Thumbs.db
+

@@ -1,0 +1,55 @@
+# Build stage
+FROM rust:1.84-bookworm AS builder
+
+WORKDIR /app
+
+# Install nightly toolchain for edition2024 support
+RUN rustup toolchain install nightly && rustup default nightly
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy workspace files
+COPY Cargo.toml Cargo.lock ./
+COPY toygres-models ./toygres-models
+COPY toygres-orchestrations ./toygres-orchestrations
+COPY toygres-server ./toygres-server
+
+# Build the application in release mode
+RUN cargo build --release --bin toygres-server
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    libssl3 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy the built binary
+COPY --from=builder /app/target/release/toygres-server /app/toygres-server
+
+# Copy templates if needed
+COPY --from=builder /app/toygres-orchestrations/src/templates /app/templates
+
+# Create non-root user
+RUN useradd -r -u 1000 toygres
+USER toygres
+
+# Expose API port
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:8080/health || exit 1
+
+# Run the server
+ENTRYPOINT ["/app/toygres-server"]
+CMD ["standalone", "--port", "8080", "--workers", "4"]
+

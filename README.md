@@ -220,6 +220,49 @@ The Web UI provides:
 - 🔬 **Debug Tools** - Orchestration viewer and log browser
 - 🔄 **Auto-refresh** - Live updates every 5 seconds
 
+### Deploy to AKS (Production)
+
+Deploy the complete solution (control plane + data plane) to Azure Kubernetes Service:
+
+```bash
+# 1. Copy and configure environment
+cp .env.example .env
+# Edit .env with your values (see required variables below)
+
+# 2. Deploy with HTTP only
+./deploy/deploy-to-aks.sh
+
+# 3. Or deploy with HTTPS (recommended for production)
+./deploy/deploy-to-aks.sh --https --dns-label mytoygres
+# This will create: https://mytoygres.<region>.cloudapp.azure.com
+```
+
+**Required environment variables for AKS deployment:**
+
+| Variable | Description |
+|----------|-------------|
+| `DATABASE_URL` | PostgreSQL connection string for metadata (can be Azure Database for PostgreSQL) |
+| `AKS_CLUSTER_NAME` | Your AKS cluster name |
+| `AKS_RESOURCE_GROUP` | Azure resource group containing the AKS cluster |
+| `AZURE_CLIENT_ID` | Service Principal client ID |
+| `AZURE_CLIENT_SECRET` | Service Principal secret |
+| `AZURE_TENANT_ID` | Azure AD tenant ID |
+| `TOYGRES_ADMIN_USERNAME` | Admin username for web UI login |
+| `TOYGRES_ADMIN_PASSWORD` | Admin password for web UI login |
+
+**Create a Service Principal:**
+```bash
+az ad sp create-for-rbac --name "toygres-sp" --role contributor \
+    --scopes /subscriptions/<subscription-id>/resourceGroups/<resource-group>
+```
+
+**What gets deployed:**
+- `toygres-server` - Control plane API and orchestration workers
+- `toygres-ui` - Web dashboard (proxies to server)
+- RBAC - ServiceAccount with permissions to create PostgreSQL pods
+- Secrets - Database credentials and Azure authentication
+- (Optional) nginx-ingress + cert-manager for HTTPS
+
 ## Project Structure
 
 ```

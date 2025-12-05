@@ -1,0 +1,28 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: toygres-ingress
+  namespace: toygres-system
+  annotations:
+    kubernetes.io/ingress.class: nginx
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+  labels:
+    app.kubernetes.io/name: toygres
+spec:
+  tls:
+  - hosts:
+    - ${TOYGRES_DNS_NAME}
+    secretName: toygres-tls
+  rules:
+  - host: ${TOYGRES_DNS_NAME}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: toygres-ui
+            port:
+              number: 80
+

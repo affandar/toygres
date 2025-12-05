@@ -2,6 +2,7 @@ use anyhow::Result;
 use axum::{
     extract::{Path, Query, State},
     http::StatusCode,
+    middleware,
     response::{IntoResponse, Json},
     routing::{get, post},
     Router,
@@ -11,7 +12,10 @@ use duroxide::Client;
 use duroxide_pg::PostgresProvider;
 use serde::Serialize;
 use std::sync::Arc;
+use tower_cookies::CookieManagerLayer;
 use tower_http::cors::{Any, CorsLayer};
+
+use crate::auth;
 
 /// Shared API state
 #[derive(Clone)]
@@ -29,11 +33,17 @@ pub fn create_router(state: AppState) -> Router {
         .allow_headers(Any);
     
     Router::new()
+        // Auth routes
+        .route("/login", get(auth::login_page).post(auth::login_handler))
+        .route("/logout", post(auth::logout_handler))
+        // Health check (public)
         .route("/health", get(health_check))
+        // API routes (protected)
         .route("/api/instances", get(list_instances).post(create_instance))
         .route("/api/instances/bulk", post(bulk_create_instances))
         .route("/api/instances/bulk/delete", post(bulk_delete_instances))
         .route("/api/instances/:name", get(get_instance).delete(delete_instance))
+        .route("/api/instances/:name/logs", get(get_instance_logs))
         .route("/api/server/orchestrations", get(list_orchestrations))
         .route("/api/server/orchestrations/:id", get(get_orchestration))
         .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
@@ -42,6 +52,10 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/server/orchestration-flows", get(list_orchestration_flows))
         .route("/api/server/orchestration-flows/:name", get(get_orchestration_flow))
         .route("/api/server/logs", get(get_logs))
+        // Auth middleware
+        .layer(middleware::from_fn(auth::auth_middleware))
+        // Cookie management
+        .layer(CookieManagerLayer::new())
         .layer(cors)
         .with_state(state)
 }
@@ -513,6 +527,102 @@ async fn delete_instance(
         "instance_name": name,
         "k8s_name": k8s_name,
         "orchestration_id": orchestration_id,
+    })))
+}
+
+// ============================================================================
+// Instance Logs (PostgreSQL Pod Logs)
+// ============================================================================
+
+#[derive(Debug, serde::Deserialize)]
+struct InstanceLogsQuery {
+    #[serde(default = "default_instance_log_lines")]
+    tail_lines: i64,
+    #[serde(default)]
+    follow: bool,
+}
+
+fn default_instance_log_lines() -> i64 {
+    200
+}
+
+async fn get_instance_logs(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<InstanceLogsQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    use k8s_openapi::api::core::v1::Pod;
+    use kube::{Api, api::LogParams};
+    
+    // Look up the instance by dns_name to get k8s_name and namespace
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, String)>(
+        "SELECT k8s_name, namespace FROM toygres_cms.instances WHERE dns_name = $1 AND state != 'deleted' LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (k8s_name, namespace) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    // Get Kubernetes client
+    let client = kube::Client::try_default()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to create K8s client: {}", e)))?;
+    
+    // Pod name is <k8s_name>-0 for StatefulSet
+    let pod_name = format!("{}-0", k8s_name);
+    
+    let pods: Api<Pod> = Api::namespaced(client, &namespace);
+    
+    // Build log params
+    let log_params = LogParams {
+        container: Some("postgres".to_string()),
+        tail_lines: Some(query.tail_lines),
+        timestamps: true,
+        ..Default::default()
+    };
+    
+    // Get logs
+    let logs = pods
+        .logs(&pod_name, &log_params)
+        .await
+        .map_err(|e| {
+            let error_msg = format!("{:?}", e);
+            if error_msg.contains("not found") || error_msg.contains("NotFound") {
+                AppError::NotFound(format!("Pod '{}' not found in namespace '{}'", pod_name, namespace))
+            } else {
+                AppError::Internal(format!("Failed to get logs: {}", e))
+            }
+        })?;
+    
+    // Split logs into lines
+    let lines: Vec<&str> = logs.lines().collect();
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "k8s_name": k8s_name,
+        "pod_name": pod_name,
+        "namespace": namespace,
+        "tail_lines": query.tail_lines,
+        "log_count": lines.len(),
+        "logs": lines,
     })))
 }
 

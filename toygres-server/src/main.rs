@@ -4,6 +4,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 use std::path::PathBuf;
 
 mod api;
+mod auth;
 mod cli;
 mod commands;
 mod config;
@@ -13,9 +14,9 @@ mod worker;
 
 use cli::{Args, Mode};
 
-/// Initialize tracing with dual output for development:
-/// 1. Console output (stdout) - for CLI logs viewing
-/// 2. File output (~/.toygres/server.log) - JSON format for persistence
+/// Initialize tracing with output to both stdout and file:
+/// - stdout: for kubectl logs / container environments
+/// - file: for local development persistence
 fn initialize_tracing() -> Result<()> {
     use tracing_subscriber::fmt;
     use tracing_subscriber::EnvFilter;
@@ -23,44 +24,60 @@ fn initialize_tracing() -> Result<()> {
     // Create the base filter
     let env_filter = EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| {
-            // Default: debug level for all components
-            // NOTE: duroxide::runtime must be explicitly enabled for worker logs
-            "debug,\
+            // Default: info level for production, debug for toygres components
+            "info,\
              toygres_server=debug,\
              toygres_orchestrations=debug,\
-             duroxide=debug,\
+             duroxide=info,\
              duroxide::runtime=debug,\
              duroxide::runtime::dispatchers=debug,\
-             duroxide_pg=debug,\
+             duroxide_pg=info,\
              sqlx::query=warn"
                 .into()
         });
     
-    // Set up file logging to ~/.toygres/server.log
-    let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-    let toygres_dir = PathBuf::from(home).join(".toygres");
-    std::fs::create_dir_all(&toygres_dir).ok();
+    // Check if running in Kubernetes (no HOME or KUBERNETES_SERVICE_HOST is set)
+    let in_kubernetes = std::env::var("KUBERNETES_SERVICE_HOST").is_ok();
     
-    let file_appender = tracing_appender::rolling::never(&toygres_dir, "server.log");
-    let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
-    
-    // CRITICAL: Keep guard alive for the lifetime of the program
-    // Dropping the guard will stop file logging
-    std::mem::forget(guard);
-    
-    // File layer: Flat text format with ANSI colors
-    let file_layer = fmt::layer()
-        .with_writer(file_writer)
-        .with_ansi(true);
-    
-    // Initialize with file layer only
-    tracing_subscriber::registry()
-        .with(env_filter)
-        .with(file_layer)
-        .init();
-    
-    eprintln!("✓ Tracing initialized");
-    eprintln!("  - File: ~/.toygres/server.log (flat text with colors)");
+    if in_kubernetes {
+        // In Kubernetes: output to stdout only (for kubectl logs)
+        let stdout_layer = fmt::layer()
+            .with_writer(std::io::stdout)
+            .with_ansi(false)  // No colors in container logs
+            .with_target(true)
+            .with_thread_ids(false);
+        
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(stdout_layer)
+            .init();
+        
+        eprintln!("✓ Tracing initialized (stdout for Kubernetes)");
+    } else {
+        // Local development: output to both stdout and file
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let toygres_dir = PathBuf::from(home).join(".toygres");
+        std::fs::create_dir_all(&toygres_dir).ok();
+        
+        let file_appender = tracing_appender::rolling::never(&toygres_dir, "server.log");
+        let (file_writer, guard) = tracing_appender::non_blocking(file_appender);
+        
+        // CRITICAL: Keep guard alive for the lifetime of the program
+        std::mem::forget(guard);
+        
+        // File layer
+        let file_layer = fmt::layer()
+            .with_writer(file_writer)
+            .with_ansi(true);
+        
+        tracing_subscriber::registry()
+            .with(env_filter)
+            .with(file_layer)
+            .init();
+        
+        eprintln!("✓ Tracing initialized");
+        eprintln!("  - File: ~/.toygres/server.log (flat text with colors)");
+    }
     
     Ok(())
 }
