@@ -9,6 +9,80 @@ interface InstanceLogsProps {
   instanceName: string;
 }
 
+// ANSI color code to Tailwind CSS class mapping (optimized for dark backgrounds - HIGH CONTRAST)
+const ansiToTailwind: Record<number, string> = {
+  0: '', // Reset
+  1: 'font-bold',
+  2: 'text-slate-300', // Dim -> still readable light gray (no opacity!)
+  30: 'text-slate-300', // Black -> light gray for dark bg
+  31: 'text-red-300',
+  32: 'text-green-300',
+  33: 'text-yellow-200',
+  34: 'text-blue-300',
+  35: 'text-purple-300',
+  36: 'text-cyan-300',
+  37: 'text-slate-100',
+  90: 'text-slate-300', // Bright black (gray) -> lighter
+  91: 'text-red-200',
+  92: 'text-green-200',
+  93: 'text-yellow-200',
+  94: 'text-blue-200',
+  95: 'text-purple-200',
+  96: 'text-cyan-200',
+  97: 'text-white',
+};
+
+// Parse ANSI escape codes and return React elements with proper styling
+function parseAnsiToReact(text: string, keyPrefix: string): React.ReactNode[] {
+  const parts: React.ReactNode[] = [];
+  // Match ANSI escape sequences: \x1b[...m or \033[...m
+  const ansiRegex = /\x1b\[([0-9;]*)m|\[([0-9;]*)m/g;
+  
+  let lastIndex = 0;
+  let currentClasses: string[] = [];
+  let match;
+  
+  while ((match = ansiRegex.exec(text)) !== null) {
+    // Add text before this escape sequence
+    if (match.index > lastIndex) {
+      const textContent = text.slice(lastIndex, match.index);
+      if (textContent) {
+        parts.push(
+          <span key={`${keyPrefix}-${parts.length}`} className={currentClasses.join(' ')}>
+            {textContent}
+          </span>
+        );
+      }
+    }
+    
+    // Parse the ANSI codes
+    const codes = (match[1] || match[2] || '0').split(';').map(Number);
+    for (const code of codes) {
+      if (code === 0) {
+        currentClasses = [];
+      } else if (ansiToTailwind[code]) {
+        currentClasses.push(ansiToTailwind[code]);
+      }
+    }
+    
+    lastIndex = match.index + match[0].length;
+  }
+  
+  // Add remaining text
+  if (lastIndex < text.length) {
+    const textContent = text.slice(lastIndex);
+    if (textContent) {
+      parts.push(
+        <span key={`${keyPrefix}-${parts.length}`} className={currentClasses.join(' ')}>
+          {textContent}
+        </span>
+      );
+    }
+  }
+  
+  return parts.length > 0 ? parts : [text];
+}
+
 export function InstanceLogs({ instanceName }: InstanceLogsProps) {
   const [tailLines, setTailLines] = useState(200);
   const [autoRefresh, setAutoRefresh] = useState(true);
@@ -45,6 +119,20 @@ export function InstanceLogs({ instanceName }: InstanceLogsProps) {
   };
 
   const formatLogLine = (line: string, index: number) => {
+    // Check if the line contains ANSI escape codes
+    const hasAnsi = /\x1b\[|\[([0-9;]*)m/.test(line);
+    
+    if (hasAnsi) {
+      // Parse ANSI codes and render with proper colors
+      return (
+        <div key={index} className="px-2 py-0.5 hover:bg-slate-800/50">
+          <span className="text-xs font-mono break-all text-slate-100">
+            {parseAnsiToReact(line, `line-${index}`)}
+          </span>
+        </div>
+      );
+    }
+    
     // Parse timestamp from the beginning of the line (format: 2024-01-01T12:00:00.000Z)
     const timestampMatch = line.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+Z)\s+(.*)$/);
     
@@ -53,28 +141,38 @@ export function InstanceLogs({ instanceName }: InstanceLogsProps) {
       const date = new Date(timestamp);
       const formattedTime = date.toLocaleTimeString();
       
-      // Color code based on log level
-      let levelColor = 'text-slate-400';
+      // Color code based on log level - using bright colors for readability
+      let levelColor = 'text-slate-100';
       if (message.includes('ERROR') || message.includes('FATAL')) {
-        levelColor = 'text-red-400';
+        levelColor = 'text-red-300';
       } else if (message.includes('WARNING') || message.includes('WARN')) {
-        levelColor = 'text-yellow-400';
+        levelColor = 'text-yellow-200';
       } else if (message.includes('LOG') || message.includes('INFO')) {
-        levelColor = 'text-blue-400';
+        levelColor = 'text-blue-300';
       }
       
       return (
         <div key={index} className="flex gap-2 hover:bg-slate-800/50 px-2 py-0.5">
-          <span className="text-slate-500 text-xs shrink-0 font-mono">{formattedTime}</span>
+          <span className="text-slate-400 text-xs shrink-0 font-mono">{formattedTime}</span>
           <span className={`text-xs font-mono ${levelColor} break-all`}>{message}</span>
         </div>
       );
     }
     
-    // Non-timestamped line
+    // Non-timestamped line (e.g., PostgreSQL logs)
+    // Color code based on keywords - using bright colors for readability
+    let levelColor = 'text-slate-100';
+    if (line.includes('ERROR') || line.includes('FATAL')) {
+      levelColor = 'text-red-300';
+    } else if (line.includes('WARNING') || line.includes('WARN')) {
+      levelColor = 'text-yellow-200';
+    } else if (line.includes('LOG:') || line.includes('INFO')) {
+      levelColor = 'text-blue-300';
+    }
+    
     return (
       <div key={index} className="px-2 py-0.5 hover:bg-slate-800/50">
-        <span className="text-xs font-mono text-slate-300 break-all">{line}</span>
+        <span className={`text-xs font-mono ${levelColor} break-all`}>{line}</span>
       </div>
     );
   };

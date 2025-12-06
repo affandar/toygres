@@ -1,3 +1,5 @@
+export type ImageType = 'stock' | 'pg_durable';
+
 export interface Instance {
   user_name: string;
   k8s_name: string;
@@ -12,6 +14,7 @@ export interface Instance {
   dns_connection_string?: string;
   external_ip?: string;
   message?: string;
+  image_type: ImageType;
 }
 
 export interface InstanceDetail extends Instance {

@@ -23,12 +23,14 @@ pub async fn activity(
         .await
         .map_err(|e| format!("Failed to start transaction: {}", e))?;
 
+    let image_type_str = input.image_type.as_str();
+    
     let insert_result = sqlx::query(
         r#"
         INSERT INTO toygres_cms.instances
         (user_name, k8s_name, namespace, postgres_version, storage_size_gb,
-         use_load_balancer, dns_name, state, create_orchestration_id)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'creating', $8)
+         use_load_balancer, dns_name, state, create_orchestration_id, image_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'creating', $8, $9::public.image_type)
         ON CONFLICT (k8s_name) DO UPDATE
         SET user_name = EXCLUDED.user_name,
             namespace = EXCLUDED.namespace,
@@ -36,6 +38,7 @@ pub async fn activity(
             storage_size_gb = EXCLUDED.storage_size_gb,
             use_load_balancer = EXCLUDED.use_load_balancer,
             dns_name = EXCLUDED.dns_name,
+            image_type = EXCLUDED.image_type,
             updated_at = NOW()
         WHERE toygres_cms.instances.create_orchestration_id = EXCLUDED.create_orchestration_id
         RETURNING id
@@ -49,6 +52,7 @@ pub async fn activity(
     .bind(input.use_load_balancer)
     .bind(&input.dns_name)
     .bind(&input.orchestration_id)
+    .bind(image_type_str)
     .fetch_optional(&mut *tx)
     .await;
 

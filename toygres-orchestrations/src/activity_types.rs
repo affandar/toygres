@@ -4,6 +4,37 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 // ============================================================================
+// Image Types
+// ============================================================================
+
+/// PostgreSQL image type for deployment
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ImageType {
+    /// Stock PostgreSQL image (postgres:version)
+    #[default]
+    Stock,
+    /// pg_durable image with duroxide extension
+    PgDurable,
+}
+
+impl ImageType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ImageType::Stock => "stock",
+            ImageType::PgDurable => "pg_durable",
+        }
+    }
+    
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "pg_durable" | "pgdurable" | "durable" => ImageType::PgDurable,
+            _ => ImageType::Stock,
+        }
+    }
+}
+
+// ============================================================================
 // Deploy PostgreSQL Activity
 // ============================================================================
 
@@ -23,6 +54,11 @@ pub struct DeployPostgresInput {
     pub use_load_balancer: bool,
     /// Optional DNS label for Azure DNS
     pub dns_label: Option<String>,
+    /// Image type (stock or pg_durable)
+    #[serde(default)]
+    pub image_type: ImageType,
+    /// Custom image registry (for pg_durable images)
+    pub image_registry: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -91,6 +127,9 @@ pub struct GetConnectionStringsInput {
     pub use_load_balancer: bool,
     /// DNS label (if used)
     pub dns_label: Option<String>,
+    /// Image type (affects default database name)
+    #[serde(default)]
+    pub image_type: ImageType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -137,6 +176,8 @@ pub struct CreateInstanceRecordInput {
     pub use_load_balancer: bool,
     pub dns_name: Option<String>,
     pub orchestration_id: String,
+    #[serde(default)]
+    pub image_type: ImageType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

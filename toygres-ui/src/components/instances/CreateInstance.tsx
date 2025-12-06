@@ -15,9 +15,10 @@ export function CreateInstance() {
   const [formData, setFormData] = useState({
     name: '',
     password: '',
-    postgres_version: '18',
+    postgres_version: '17',
     storage_size_gb: 10,
     internal: false,
+    image_type: 'pg_durable' as 'stock' | 'pg_durable',
   });
 
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -98,15 +99,17 @@ export function CreateInstance() {
               <input
                 type="text"
                 className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-                placeholder="mydb"
+                placeholder="my-postgres-db"
                 value={formData.name}
                 onChange={(e) => setFormData({ ...formData, name: e.target.value.toLowerCase() })}
+                autoComplete="off"
+                name="instance-name"
               />
               {errors.name && (
                 <p className="text-sm text-destructive">{errors.name}</p>
               )}
               <p className="text-xs text-muted-foreground">
-                Lowercase letters, numbers, and hyphens only. Will become: {formData.name || 'name'}.westus3.cloudapp.azure.com
+                Lowercase letters, numbers, and hyphens only. Will become: {formData.name || 'my-postgres-db'}.westus3.cloudapp.azure.com
               </p>
             </div>
 
@@ -120,6 +123,8 @@ export function CreateInstance() {
                 placeholder="••••••••"
                 value={formData.password}
                 onChange={(e) => setFormData({ ...formData, password: e.target.value })}
+                autoComplete="new-password"
+                name="instance-password"
               />
               {errors.password && (
                 <p className="text-sm text-destructive">{errors.password}</p>
@@ -161,6 +166,59 @@ export function CreateInstance() {
                 {errors.storage_size_gb && (
                   <p className="text-sm text-destructive">{errors.storage_size_gb}</p>
                 )}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">
+                Image Type
+              </label>
+              <div className="grid gap-3 md:grid-cols-2">
+                <div
+                  className={`relative rounded-lg border-2 p-4 cursor-pointer transition-colors ${
+                    formData.image_type === 'stock'
+                      ? 'border-primary bg-primary/5'
+                      : 'border-input hover:border-muted-foreground/50'
+                  }`}
+                  onClick={() => setFormData({ ...formData, image_type: 'stock' })}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`h-4 w-4 rounded-full border-2 ${
+                      formData.image_type === 'stock' ? 'border-primary bg-primary' : 'border-muted-foreground'
+                    }`}>
+                      {formData.image_type === 'stock' && (
+                        <div className="h-full w-full rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <span className="font-medium">Stock PostgreSQL</span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Standard PostgreSQL image. Best for typical database workloads.
+                  </p>
+                </div>
+                <div
+                  className={`relative rounded-lg border-2 p-4 cursor-pointer transition-colors ${
+                    formData.image_type === 'pg_durable'
+                      ? 'border-primary bg-primary/5'
+                      : 'border-input hover:border-muted-foreground/50'
+                  }`}
+                  onClick={() => setFormData({ ...formData, image_type: 'pg_durable' })}
+                >
+                  <div className="flex items-center gap-2">
+                    <div className={`h-4 w-4 rounded-full border-2 ${
+                      formData.image_type === 'pg_durable' ? 'border-primary bg-primary' : 'border-muted-foreground'
+                    }`}>
+                      {formData.image_type === 'pg_durable' && (
+                        <div className="h-full w-full rounded-full bg-primary" />
+                      )}
+                    </div>
+                    <span className="font-medium">pg_durable</span>
+                    <span className="ml-auto text-xs bg-blue-500/20 text-blue-500 px-2 py-0.5 rounded">Durable SQL</span>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    PostgreSQL with Duroxide extension for durable SQL functions and orchestrations.
+                  </p>
+                </div>
               </div>
             </div>
 

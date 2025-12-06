@@ -77,6 +77,44 @@ export const api = {
     return fetchJson(`${API_BASE}/api/instances/${name}/logs?tail_lines=${tailLines}`);
   },
 
+  async getPgDurableOrchestrations(name: string, limit: number = 50, status?: string): Promise<{
+    instance_name: string;
+    image_type: string;
+    count: number;
+    orchestrations: Array<{
+      instance_id: string;
+      label: string | null;
+      orchestration_name: string | null;
+      status: string;
+      execution_count: number;
+      output: string | null;
+    }>;
+  }> {
+    const params = new URLSearchParams({ limit: limit.toString() });
+    if (status) params.append('status', status);
+    return fetchJson(`${API_BASE}/api/instances/${name}/durable-orchestrations?${params}`);
+  },
+
+  async getPgDurableInstanceNodes(pgInstanceName: string, orchestrationInstanceId: string, executions: number = 5): Promise<{
+    pg_instance_name: string;
+    orchestration_instance_id: string;
+    executions_shown: number;
+    count: number;
+    nodes: Array<{
+      execution_id: number;
+      node_id: string;
+      node_type: string;
+      query: string | null;
+      result_name: string | null;
+      left_node: string | null;
+      right_node: string | null;
+      status: string;
+      result: string | null;
+    }>;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${orchestrationInstanceId}/nodes?executions=${executions}`);
+  },
+
   async createInstance(data: {
     name: string;
     password: string;
@@ -84,11 +122,13 @@ export const api = {
     storage_size_gb?: number;
     internal?: boolean;
     namespace?: string;
+    image_type?: 'stock' | 'pg_durable';
   }): Promise<{
     instance_name: string;
     k8s_name: string;
     orchestration_id: string;
     dns_name: string;
+    image_type: string;
   }> {
     return fetchJson(`${API_BASE}/api/instances`, {
       method: 'POST',

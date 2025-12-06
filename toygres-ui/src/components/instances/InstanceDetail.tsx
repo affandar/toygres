@@ -1,13 +1,12 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, Trash2, AlertTriangle } from 'lucide-react';
+import { ArrowLeft, Copy, Trash2, AlertTriangle, FileText, GitBranch } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/lib/toast';
 import { api } from '@/lib/api';
 import { copyToClipboard, getStateColor, getHealthColor, formatRelativeTime } from '@/lib/utils';
-import { InstanceLogs } from './InstanceLogs';
 
 export function InstanceDetail() {
   const { name } = useParams<{ name: string }>();
@@ -146,6 +145,19 @@ export function InstanceDetail() {
               <span className="text-sm font-medium">{instance.postgres_version}</span>
             </div>
             <div className="flex justify-between">
+              <span className="text-sm text-muted-foreground">Image</span>
+              <span className="text-sm font-medium flex items-center gap-1">
+                {instance.image_type === 'pg_durable' ? (
+                  <>
+                    pg_durable
+                    <span className="text-xs bg-blue-500/20 text-blue-500 px-1.5 py-0.5 rounded">Durable SQL</span>
+                  </>
+                ) : (
+                  'Stock PostgreSQL'
+                )}
+              </span>
+            </div>
+            <div className="flex justify-between">
               <span className="text-sm text-muted-foreground">Storage</span>
               <span className="text-sm font-medium">{instance.storage_size_gb} GB</span>
             </div>
@@ -231,9 +243,47 @@ export function InstanceDetail() {
         </Card>
       )}
 
-      {/* PostgreSQL Logs */}
+      {/* Quick Actions */}
       {instance.state === 'running' && (
-        <InstanceLogs instanceName={name!} />
+        <Card>
+          <CardHeader>
+            <CardTitle>Instance Tools</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 md:grid-cols-2">
+              <Button
+                variant="outline"
+                className="h-auto py-4 flex flex-col items-start gap-1"
+                onClick={() => navigate(`/instances/${name}/logs`)}
+              >
+                <div className="flex items-center gap-2">
+                  <FileText className="h-5 w-5 text-blue-500" />
+                  <span className="font-medium">PostgreSQL Logs</span>
+                </div>
+                <span className="text-xs text-muted-foreground font-normal">
+                  View real-time database logs
+                </span>
+              </Button>
+              
+              {instance.image_type === 'pg_durable' && (
+                <Button
+                  variant="outline"
+                  className="h-auto py-4 flex flex-col items-start gap-1"
+                  onClick={() => navigate(`/instances/${name}/workflows`)}
+                >
+                  <div className="flex items-center gap-2">
+                    <GitBranch className="h-5 w-5 text-purple-500" />
+                    <span className="font-medium">Durable SQL Functions</span>
+                    <span className="text-xs bg-blue-500/20 text-blue-400 px-1.5 py-0.5 rounded">pg_durable</span>
+                  </div>
+                  <span className="text-xs text-muted-foreground font-normal">
+                    View durable function executions and results
+                  </span>
+                </Button>
+              )}
+            </div>
+          </CardContent>
+        </Card>
       )}
     </div>
   );

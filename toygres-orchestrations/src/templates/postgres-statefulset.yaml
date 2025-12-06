@@ -6,6 +6,7 @@ metadata:
   labels:
     app: postgres
     instance: {{ name }}
+    image-type: {{ image_type }}
 spec:
   replicas: 1
   serviceName: {{ name }}
@@ -18,10 +19,15 @@ spec:
       labels:
         app: postgres
         instance: {{ name }}
+        image-type: {{ image_type }}
     spec:
+      {% if image_type == "pg_durable" %}
+      imagePullSecrets:
+      - name: acr-secret
+      {% endif %}
       containers:
       - name: postgres
-        image: postgres:{{ postgres_version }}
+        image: {{ image }}
         ports:
         - containerPort: 5432
           name: postgres
@@ -34,6 +40,10 @@ spec:
           value: postgres
         - name: PGDATA
           value: /var/lib/postgresql/data/pgdata
+        {% if image_type == "pg_durable" %}
+        - name: PGDATABASE
+          value: postgres
+        {% endif %}
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data

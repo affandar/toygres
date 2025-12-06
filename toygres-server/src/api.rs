@@ -44,6 +44,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances/bulk/delete", post(bulk_delete_instances))
         .route("/api/instances/:name", get(get_instance).delete(delete_instance))
         .route("/api/instances/:name/logs", get(get_instance_logs))
+        .route("/api/instances/:name/durable-orchestrations", get(get_pg_durable_orchestrations))
+        .route("/api/instances/:name/durable-orchestrations/:instance_id/nodes", get(get_pg_durable_instance_nodes))
         .route("/api/server/orchestrations", get(list_orchestrations))
         .route("/api/server/orchestrations/:id", get(get_orchestration))
         .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
@@ -102,6 +104,7 @@ struct InstanceSummary {
     postgres_version: String,
     storage_size_gb: i32,
     created_at: String,
+    image_type: String,
 }
 
 async fn list_instances(
@@ -120,9 +123,10 @@ async fn list_instances(
         .context("Failed to connect to database")
         .map_err(|e| AppError::Internal(e.to_string()))?;
     
-    let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, String, i32, String)>(
+    let rows = sqlx::query_as::<_, (String, String, Option<String>, String, String, String, i32, String, String)>(
         "SELECT user_name, k8s_name, dns_name, state::text, health_status::text, 
-                postgres_version, storage_size_gb, created_at::text
+                postgres_version, storage_size_gb, created_at::text,
+                COALESCE(image_type::text, 'stock') as image_type
          FROM toygres_cms.instances
          WHERE state != 'deleted'
          ORDER BY created_at DESC"
@@ -134,7 +138,7 @@ async fn list_instances(
     
     let instances: Vec<InstanceSummary> = rows
         .into_iter()
-        .map(|(user_name, k8s_name, dns_name, state, health_status, postgres_version, storage_size_gb, created_at)| {
+        .map(|(user_name, k8s_name, dns_name, state, health_status, postgres_version, storage_size_gb, created_at, image_type)| {
             InstanceSummary {
                 user_name,
                 k8s_name,
@@ -144,6 +148,7 @@ async fn list_instances(
                 postgres_version,
                 storage_size_gb,
                 created_at,
+                image_type,
             }
         })
         .collect();
@@ -168,14 +173,14 @@ async fn get_instance(
         .context("Failed to connect to database")
         .map_err(|e| AppError::Internal(e.to_string()))?;
     
-    let row = sqlx::query_as::<_, (
-        String, String, String, Option<String>, String, String, String, i32, bool,
-        Option<String>, Option<String>, Option<String>, String, String
-    )>(
+    // Use raw query to avoid tuple size limitations
+    let row = sqlx::query(
         "SELECT id::text, user_name, k8s_name, dns_name, state::text, health_status::text,
                 postgres_version, storage_size_gb, use_load_balancer,
                 ip_connection_string, dns_connection_string, external_ip,
-                created_at::text, updated_at::text
+                created_at::text, updated_at::text,
+                create_orchestration_id, instance_actor_orchestration_id,
+                COALESCE(image_type::text, 'stock') as image_type
          FROM toygres_cms.instances
          WHERE dns_name = $1 AND state != 'deleted'
          LIMIT 1"
@@ -187,24 +192,26 @@ async fn get_instance(
     .map_err(|e| AppError::Internal(e.to_string()))?;
     
     match row {
-        Some((id, user_name, k8s_name, dns_name, state, health_status, postgres_version,
-              storage_size_gb, use_load_balancer, ip_conn, dns_conn, external_ip,
-              created_at, updated_at)) => {
+        Some(row) => {
+            use sqlx::Row;
             Ok(Json(serde_json::json!({
-                "id": id,
-                "user_name": user_name,
-                "k8s_name": k8s_name,
-                "dns_name": dns_name,
-                "state": state,
-                "health_status": health_status,
-                "postgres_version": postgres_version,
-                "storage_size_gb": storage_size_gb,
-                "use_load_balancer": use_load_balancer,
-                "ip_connection_string": ip_conn,
-                "dns_connection_string": dns_conn,
-                "external_ip": external_ip,
-                "created_at": created_at,
-                "updated_at": updated_at
+                "id": row.get::<String, _>("id"),
+                "user_name": row.get::<String, _>("user_name"),
+                "k8s_name": row.get::<String, _>("k8s_name"),
+                "dns_name": row.get::<Option<String>, _>("dns_name"),
+                "state": row.get::<String, _>("state"),
+                "health_status": row.get::<String, _>("health_status"),
+                "postgres_version": row.get::<String, _>("postgres_version"),
+                "storage_size_gb": row.get::<i32, _>("storage_size_gb"),
+                "use_load_balancer": row.get::<bool, _>("use_load_balancer"),
+                "ip_connection_string": row.get::<Option<String>, _>("ip_connection_string"),
+                "dns_connection_string": row.get::<Option<String>, _>("dns_connection_string"),
+                "external_ip": row.get::<Option<String>, _>("external_ip"),
+                "created_at": row.get::<String, _>("created_at"),
+                "updated_at": row.get::<String, _>("updated_at"),
+                "create_orchestration_id": row.get::<Option<String>, _>("create_orchestration_id"),
+                "instance_actor_orchestration_id": row.get::<Option<String>, _>("instance_actor_orchestration_id"),
+                "image_type": row.get::<String, _>("image_type")
             })))
         }
         None => Err(AppError::NotFound(format!("Instance '{}' not found", name)))
@@ -223,6 +230,9 @@ struct CreateInstanceRequest {
     internal: bool,
     #[serde(default = "default_namespace")]
     namespace: String,
+    /// Image type: "stock" (default) or "pg_durable"
+    #[serde(default = "default_image_type")]
+    image_type: String,
 }
 
 fn default_version() -> String {
@@ -237,12 +247,17 @@ fn default_namespace() -> String {
     "toygres".to_string()
 }
 
+fn default_image_type() -> String {
+    "stock".to_string()
+}
+
 async fn create_instance(
     State(state): State<AppState>,
     Json(req): Json<CreateInstanceRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     use uuid::Uuid;
     use toygres_orchestrations::types::CreateInstanceInput;
+    use toygres_orchestrations::activity_types::ImageType;
     
     // Validate name
     if req.name.is_empty() || !req.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -252,6 +267,9 @@ async fn create_instance(
     if req.password.len() < 8 {
         return Err(AppError::BadRequest("Password must be at least 8 characters".to_string()));
     }
+    
+    // Parse image type
+    let image_type = ImageType::from_str(&req.image_type);
     
     // Generate K8s name (name + random suffix)
     let suffix = Uuid::new_v4().to_string().split('-').next().unwrap().to_string();
@@ -268,6 +286,7 @@ async fn create_instance(
         dns_label: Some(req.name.clone()),
         namespace: Some(req.namespace),
         orchestration_id: orchestration_id.clone(),
+        image_type: image_type.clone(),
     };
     
     // Start the create orchestration
@@ -285,6 +304,7 @@ async fn create_instance(
         "k8s_name": k8s_name,
         "orchestration_id": orchestration_id,
         "dns_name": format!("{}.westus3.cloudapp.azure.com", req.name),
+        "image_type": image_type.as_str(),
     })))
 }
 
@@ -294,6 +314,7 @@ async fn bulk_create_instances(
 ) -> Result<Json<serde_json::Value>, AppError> {
     use uuid::Uuid;
     use toygres_orchestrations::types::CreateInstanceInput;
+    use toygres_orchestrations::activity_types::ImageType;
     
     let base_name = req.get("base_name")
         .and_then(|v| v.as_str())
@@ -322,6 +343,11 @@ async fn bulk_create_instances(
     let namespace = req.get("namespace")
         .and_then(|v| v.as_str())
         .unwrap_or("toygres");
+    
+    let image_type_str = req.get("image_type")
+        .and_then(|v| v.as_str())
+        .unwrap_or("stock");
+    let image_type = ImageType::from_str(image_type_str);
     
     // Validate
     if base_name.is_empty() || !base_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -354,6 +380,7 @@ async fn bulk_create_instances(
             dns_label: Some(user_name.clone()),
             namespace: Some(namespace.to_string()),
             orchestration_id: orchestration_id.clone(),
+            image_type: image_type.clone(),
         };
         
         state.duroxide_client
@@ -370,6 +397,7 @@ async fn bulk_create_instances(
             "k8s_name": k8s_name,
             "orchestration_id": orchestration_id,
             "dns_name": format!("{}.westus3.cloudapp.azure.com", user_name),
+            "image_type": image_type.as_str(),
         }));
     }
     
@@ -623,6 +651,243 @@ async fn get_instance_logs(
         "tail_lines": query.tail_lines,
         "log_count": lines.len(),
         "logs": lines,
+    })))
+}
+
+// ============================================================================
+// pg_durable Orchestrations (Durable SQL Functions)
+// ============================================================================
+
+#[derive(Debug, serde::Deserialize)]
+struct PgDurableQuery {
+    #[serde(default = "default_pg_durable_limit")]
+    limit: i64,
+    #[serde(default)]
+    status: Option<String>,
+}
+
+fn default_pg_durable_limit() -> i64 {
+    50
+}
+
+/// Get pg_durable orchestration executions from a PostgreSQL instance
+/// This connects to the instance's PostgreSQL and queries the pg_durable schema
+async fn get_pg_durable_orchestrations(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<PgDurableQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    
+    // First, look up the instance to get its connection string and verify it's a pg_durable instance
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, Option<String>, String)>(
+        "SELECT image_type::text, dns_connection_string, state::text
+         FROM toygres_cms.instances 
+         WHERE dns_name = $1 AND state != 'deleted'
+         LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (image_type, connection_string, state) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    // Verify this is a pg_durable instance
+    if image_type != "pg_durable" {
+        return Err(AppError::BadRequest(format!(
+            "Instance '{}' is not a pg_durable instance (image_type: {}). Durable orchestrations are only available for pg_durable instances.",
+            name, image_type
+        )));
+    }
+    
+    // Verify instance is running
+    if state != "running" {
+        return Err(AppError::BadRequest(format!(
+            "Instance '{}' is not running (state: {}). Cannot query durable orchestrations.",
+            name, state
+        )));
+    }
+    
+    let connection_string = connection_string.ok_or_else(|| {
+        AppError::Internal("Instance has no connection string".to_string())
+    })?;
+    
+    // Connect to the pg_durable instance
+    let instance_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .connect(&connection_string)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
+    
+    // Query the pg_durable instances using durable.list_instances() function
+    let status_filter = query.status.as_deref();
+    
+    let orchestrations = sqlx::query_as::<_, (String, Option<String>, Option<String>, String, i64, Option<String>)>(
+        r#"
+        SELECT 
+            instance_id,
+            label,
+            orchestration_name,
+            status,
+            execution_count,
+            output
+        FROM durable.list_instances($1, $2)
+        "#
+    )
+    .bind(status_filter)
+    .bind(query.limit as i32)
+    .fetch_all(&instance_pool)
+    .await
+    .map_err(|e| {
+        let err_str = e.to_string();
+        if err_str.contains("does not exist") {
+            AppError::BadRequest("durable schema not found. The pg_durable extension may not be initialized.".to_string())
+        } else {
+            AppError::Internal(format!("Failed to query pg_durable instances: {}", e))
+        }
+    })?;
+    
+    let orchestrations_json: Vec<serde_json::Value> = orchestrations
+        .into_iter()
+        .map(|(instance_id, label, orchestration_name, status, execution_count, output)| {
+            serde_json::json!({
+                "instance_id": instance_id,
+                "label": label,
+                "orchestration_name": orchestration_name,
+                "status": status,
+                "execution_count": execution_count,
+                "output": output,
+            })
+        })
+        .collect();
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "image_type": image_type,
+        "count": orchestrations_json.len(),
+        "orchestrations": orchestrations_json,
+    })))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstanceNodesQuery {
+    #[serde(default = "default_executions")]
+    executions: i32,
+}
+
+fn default_executions() -> i32 {
+    5
+}
+
+/// Get nodes for a specific pg_durable orchestration instance
+/// Calls durable.instance_nodes(instance_id, last_n_executions) function
+async fn get_pg_durable_instance_nodes(
+    State(_state): State<AppState>,
+    Path((name, instance_id)): Path<(String, String)>,
+    Query(query): Query<InstanceNodesQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    
+    // First, look up the instance to get its connection string
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, Option<String>, String)>(
+        "SELECT image_type::text, dns_connection_string, state::text
+         FROM toygres_cms.instances 
+         WHERE dns_name = $1 AND state != 'deleted'
+         LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (image_type, connection_string, state) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    if image_type != "pg_durable" {
+        return Err(AppError::BadRequest("Not a pg_durable instance".to_string()));
+    }
+    
+    if state != "running" {
+        return Err(AppError::BadRequest(format!("Instance is not running (state: {})", state)));
+    }
+    
+    let connection_string = connection_string.ok_or_else(|| {
+        AppError::Internal("Instance has no connection string".to_string())
+    })?;
+    
+    // Connect to the pg_durable instance
+    let instance_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .connect(&connection_string)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
+    
+    // Call durable.instance_nodes(instance_id, last_n_executions)
+    let nodes = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>)>(
+        "SELECT execution_id, node_id, node_type, query, result_name, left_node, right_node, status, result 
+         FROM durable.instance_nodes($1, $2)"
+    )
+    .bind(&instance_id)
+    .bind(query.executions)
+    .fetch_all(&instance_pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to query instance nodes: {}", e)))?;
+    
+    let nodes_json: Vec<serde_json::Value> = nodes
+        .into_iter()
+        .map(|(execution_id, node_id, node_type, query, result_name, left_node, right_node, status, result)| {
+            serde_json::json!({
+                "execution_id": execution_id,
+                "node_id": node_id,
+                "node_type": node_type,
+                "query": query,
+                "result_name": result_name,
+                "left_node": left_node,
+                "right_node": right_node,
+                "status": status,
+                "result": result,
+            })
+        })
+        .collect();
+    
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "orchestration_instance_id": instance_id,
+        "executions_shown": query.executions,
+        "count": nodes_json.len(),
+        "nodes": nodes_json,
     })))
 }
 
@@ -983,6 +1248,12 @@ async fn get_logs(
     State(_state): State<AppState>,
     Query(query): Query<LogsQuery>,
 ) -> Result<Json<Vec<String>>, AppError> {
+    // Check if running in Kubernetes
+    if std::env::var("KUBERNETES_DEPLOYMENT").is_ok() {
+        return get_logs_from_kubernetes(query).await;
+    }
+    
+    // Local development: read from log file
     use std::io::{BufRead, BufReader};
     use std::path::PathBuf;
     
@@ -1015,6 +1286,49 @@ async fn get_logs(
     };
     
     Ok(Json(lines[start..].to_vec()))
+}
+
+/// Get logs from Kubernetes pod (when running in K8s)
+async fn get_logs_from_kubernetes(query: LogsQuery) -> Result<Json<Vec<String>>, AppError> {
+    use k8s_openapi::api::core::v1::Pod;
+    use kube::{api::Api, Client};
+    
+    let client = Client::try_default()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to create K8s client: {}", e)))?;
+    
+    // Get our own pod name from environment (set by Kubernetes)
+    let pod_name = std::env::var("HOSTNAME")
+        .unwrap_or_else(|_| "toygres-server".to_string());
+    
+    let namespace = std::env::var("POD_NAMESPACE")
+        .unwrap_or_else(|_| "toygres-system".to_string());
+    
+    let pods: Api<Pod> = Api::namespaced(client, &namespace);
+    
+    // Get logs with tail
+    let log_params = kube::api::LogParams {
+        tail_lines: Some(query.limit as i64),
+        timestamps: true,
+        ..Default::default()
+    };
+    
+    let logs = pods.logs(&pod_name, &log_params)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get pod logs: {}", e)))?;
+    
+    let mut lines: Vec<String> = logs
+        .lines()
+        .map(|s| s.to_string())
+        .collect();
+    
+    // Apply filter if provided
+    if let Some(ref filter) = query.filter {
+        let filter_lower = filter.to_lowercase();
+        lines.retain(|line| line.to_lowercase().contains(&filter_lower));
+    }
+    
+    Ok(Json(lines))
 }
 
 // ============================================================================

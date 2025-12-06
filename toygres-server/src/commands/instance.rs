@@ -194,6 +194,7 @@ async fn handle_create(
         dns_label,
         namespace,
         orchestration_id: instance_id.clone(),
+        image_type: toygres_orchestrations::activity_types::ImageType::Stock, // CLI uses stock by default
     };
     
     let input_json = serde_json::to_string(&input)?;

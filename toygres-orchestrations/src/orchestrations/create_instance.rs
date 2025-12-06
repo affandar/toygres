@@ -14,6 +14,7 @@ use crate::activity_types::{
     UpdateInstanceStateInput, UpdateInstanceStateOutput,
     FreeDnsNameInput, FreeDnsNameOutput,
     RecordInstanceActorInput, RecordInstanceActorOutput,
+    ImageType,
 };
 
 pub async fn create_instance_orchestration(
@@ -40,6 +41,7 @@ pub async fn create_instance_orchestration(
         use_load_balancer,
         dns_name: input.dns_label.clone(),
         orchestration_id: input.orchestration_id.clone(),
+        image_type: input.image_type.clone(),
     };
     
     ctx.schedule_activity_typed::<CreateInstanceRecordInput, CreateInstanceRecordOutput>(
@@ -49,7 +51,7 @@ pub async fn create_instance_orchestration(
         .into_activity_typed::<CreateInstanceRecordOutput>()
         .await?;
     
-    match create_instance_impl(&ctx, &input, &namespace, &postgres_version, storage_size_gb, use_load_balancer).await {
+    match create_instance_impl(&ctx, &input, &namespace, &postgres_version, storage_size_gb, use_load_balancer, &input.image_type).await {
         Ok(output) => {
             ctx.trace_info("Instance created successfully");
             let update_input = UpdateInstanceStateInput {
@@ -91,20 +93,33 @@ async fn create_instance_impl(
     postgres_version: &str,
     storage_size_gb: i32,
     use_load_balancer: bool,
+    image_type: &ImageType,
 ) -> Result<CreateInstanceOutput, String> {
     let start_time = ctx.utcnow().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
+    // For pg_durable images, use hardcoded postgres/postgres credentials
+    // The pg_durable image currently doesn't support custom passwords
+    let effective_password = match image_type {
+        ImageType::PgDurable => {
+            ctx.trace_info("Using default postgres/postgres credentials for pg_durable image");
+            "postgres".to_string()
+        }
+        ImageType::Stock => input.password.clone(),
+    };
+    
     // Step 1: Deploy PostgreSQL
-    ctx.trace_info("Step 1: Deploying PostgreSQL to Kubernetes");
+    ctx.trace_info(format!("Step 1: Deploying PostgreSQL to Kubernetes (image: {})", image_type.as_str()));
     let deploy_input = DeployPostgresInput {
         namespace: namespace.to_string(),
         instance_name: input.name.clone(),
-        password: input.password.clone(),
+        password: effective_password.clone(),
         postgres_version: postgres_version.to_string(),
         storage_size_gb,
         use_load_balancer,
         dns_label: input.dns_label.clone(),
+        image_type: image_type.clone(),
+        image_registry: None, // Use default ACR
     };
     
     let _deploy_output = ctx
@@ -167,9 +182,10 @@ async fn create_instance_impl(
     let conn_input = GetConnectionStringsInput {
         namespace: namespace.to_string(),
         instance_name: input.name.clone(),
-        password: input.password.clone(),
+        password: effective_password.clone(),
         use_load_balancer,
         dns_label: input.dns_label.clone(),
+        image_type: image_type.clone(),
     };
     
     // Get connection strings with retry - Azure LoadBalancer IP assignment can be slow
@@ -189,6 +205,13 @@ async fn create_instance_impl(
     ctx.trace_info("Connection strings generated");
     
     // Step 4: Test connection
+    // pg_durable images have a slow init process (~40 seconds) because the init script
+    // causes PostgreSQL to restart, and pg_durable's connection pool times out during shutdown
+    if matches!(image_type, ImageType::PgDurable) {
+        ctx.trace_info("Step 4: Waiting 45 seconds for pg_durable init to complete");
+        ctx.schedule_timer(Duration::from_secs(45)).into_timer().await;
+    }
+    
     ctx.trace_info("Step 4: Testing PostgreSQL connection");
     let test_connection_string = conn_output.dns_connection_string.clone()
         .unwrap_or_else(|| conn_output.ip_connection_string.clone());
@@ -365,6 +388,7 @@ mod tests {
             dns_label: Some("test".to_string()),
             namespace: Some("toygres".to_string()),
             orchestration_id: "create-test".to_string(),
+            image_type: ImageType::Stock,
         };
         
         let json = serde_json::to_string(&input).unwrap();

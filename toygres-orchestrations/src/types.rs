@@ -1,6 +1,7 @@
 //! Input and output types for Toygres orchestrations
 
 use serde::{Deserialize, Serialize};
+use crate::activity_types::ImageType;
 
 // ============================================================================
 // Create Instance Orchestration
@@ -26,6 +27,9 @@ pub struct CreateInstanceInput {
     pub namespace: Option<String>,
     /// Unique orchestration/request identifier
     pub orchestration_id: String,
+    /// Image type: stock PostgreSQL or pg_durable
+    #[serde(default)]
+    pub image_type: ImageType,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

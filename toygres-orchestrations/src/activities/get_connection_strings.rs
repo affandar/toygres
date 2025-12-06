@@ -42,6 +42,7 @@ async fn build_connection_strings(
 ) -> anyhow::Result<(String, Option<String>, Option<String>, Option<String>)> {
     let service_name = format!("{}-svc", input.instance_name);
     let username = "postgres";
+    // pg_durable is an extension in the postgres database, not a separate DB
     let database = "postgres";
     let port = 5432;
     

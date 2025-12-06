@@ -13,6 +13,6 @@ data:
   RUST_LOG: "info,toygres_server=debug,toygres_orchestrations=debug,duroxide=info"
   
   # Kubernetes Environment Detection
-  # When true, server outputs logs to stdout (JSON) instead of file
-  IS_KUBERNETES: "true"
+  # When set, server outputs logs to stdout instead of file
+  KUBERNETES_DEPLOYMENT: "true"
 
