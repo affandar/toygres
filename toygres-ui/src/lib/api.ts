@@ -115,6 +115,14 @@ export const api = {
     return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${orchestrationInstanceId}/nodes?executions=${executions}`);
   },
 
+  async getPgDurableExplain(pgInstanceName: string, orchestrationInstanceId: string): Promise<{
+    pg_instance_name: string;
+    orchestration_instance_id: string;
+    explain: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${orchestrationInstanceId}/explain`);
+  },
+
   async createInstance(data: {
     name: string;
     password: string;

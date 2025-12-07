@@ -46,6 +46,7 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances/:name/logs", get(get_instance_logs))
         .route("/api/instances/:name/durable-orchestrations", get(get_pg_durable_orchestrations))
         .route("/api/instances/:name/durable-orchestrations/:instance_id/nodes", get(get_pg_durable_instance_nodes))
+        .route("/api/instances/:name/durable-orchestrations/:instance_id/explain", get(get_pg_durable_explain))
         .route("/api/server/orchestrations", get(list_orchestrations))
         .route("/api/server/orchestrations/:id", get(get_orchestration))
         .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
@@ -888,6 +889,79 @@ async fn get_pg_durable_instance_nodes(
         "executions_shown": query.executions,
         "count": nodes_json.len(),
         "nodes": nodes_json,
+    })))
+}
+
+/// Get explain output for a specific pg_durable orchestration instance
+/// Calls durable.explain(instance_id) function for visualization
+async fn get_pg_durable_explain(
+    State(_state): State<AppState>,
+    Path((name, instance_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    
+    // First, look up the instance to get its connection string
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, Option<String>, String)>(
+        "SELECT image_type::text, dns_connection_string, state::text
+         FROM toygres_cms.instances 
+         WHERE dns_name = $1 AND state != 'deleted'
+         LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (image_type, connection_string, state) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    if image_type != "pg_durable" {
+        return Err(AppError::BadRequest("Not a pg_durable instance".to_string()));
+    }
+    
+    if state != "running" {
+        return Err(AppError::BadRequest(format!("Instance is not running (state: {})", state)));
+    }
+    
+    let connection_string = connection_string.ok_or_else(|| {
+        AppError::Internal("Instance has no connection string".to_string())
+    })?;
+    
+    // Connect to the pg_durable instance
+    let instance_pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(std::time::Duration::from_secs(10))
+        .connect(&connection_string)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
+    
+    // Call durable.explain(instance_id)
+    let result = sqlx::query_as::<_, (String,)>(
+        "SELECT durable.explain($1)"
+    )
+    .bind(&instance_id)
+    .fetch_one(&instance_pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to get explain output: {}", e)))?;
+    
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "orchestration_instance_id": instance_id,
+        "explain": result.0,
     })))
 }
 

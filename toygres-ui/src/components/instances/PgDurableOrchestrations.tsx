@@ -68,17 +68,7 @@ function getStatusConfig(status: string) {
   };
 }
 
-// Node type colors
-const NODE_TYPE_COLORS: Record<string, string> = {
-  'SQL': 'text-blue-400 bg-blue-500/20',
-  'THEN': 'text-purple-400 bg-purple-500/20',
-  'LOOP': 'text-orange-400 bg-orange-500/20',
-  'WAIT_SCHEDULE': 'text-yellow-400 bg-yellow-500/20',
-  'JOIN': 'text-cyan-400 bg-cyan-500/20',
-  'IF': 'text-pink-400 bg-pink-500/20',
-};
-
-// Expandable row component that shows nodes when clicked
+// Expandable row component that shows explain visualization when clicked
 function ExpandableInstanceRow({ 
   instance, 
   pgInstanceName,
@@ -99,25 +89,14 @@ function ExpandableInstanceRow({
 }) {
   const statusConfig = getStatusConfig(instance.status);
   
-  // Fetch nodes when expanded (with auto-refresh)
-  const { data: nodesData, isLoading: nodesLoading, isFetching: nodesFetching } = useQuery({
-    queryKey: ['pg-durable-nodes', pgInstanceName, instance.instance_id],
-    queryFn: () => api.getPgDurableInstanceNodes(pgInstanceName, instance.instance_id, 5),
+  // Fetch explain output when expanded (with auto-refresh for running instances)
+  const { data: explainData, isLoading: explainLoading, isFetching: explainFetching } = useQuery({
+    queryKey: ['pg-durable-explain', pgInstanceName, instance.instance_id],
+    queryFn: () => api.getPgDurableExplain(pgInstanceName, instance.instance_id),
     enabled: isExpanded,
-    refetchInterval: isExpanded ? 5000 : false, // Refresh every 5s when expanded
+    refetchInterval: isExpanded && instance.status.toLowerCase() === 'running' ? 3000 : false,
     staleTime: 2000,
   });
-
-  // Try to parse output as JSON
-  const formatOutput = (output: string | null) => {
-    if (!output) return null;
-    try {
-      const parsed = JSON.parse(output);
-      return JSON.stringify(parsed, null, 2);
-    } catch {
-      return output;
-    }
-  };
 
   return (
     <>
@@ -147,95 +126,29 @@ function ExpandableInstanceRow({
         <td className="p-3 text-center text-sm">{instance.execution_count}</td>
       </tr>
       
-      {/* Expanded Details */}
+      {/* Expanded Details - Explain Visualization */}
       {isExpanded && (
         <tr className="bg-muted/20">
           <td colSpan={6} className="p-0">
-            <div className="p-4 space-y-4">
-              {/* Output Section */}
-              <div>
-                <h4 className="text-sm font-medium mb-2">Output / Result</h4>
-                {instance.output ? (
-                  <pre className={`text-xs p-3 rounded overflow-x-auto max-h-32 ${
-                    instance.status.toLowerCase() === 'failed' 
-                      ? 'bg-red-500/10 text-red-300 border border-red-500/20' 
-                      : 'bg-slate-900 text-slate-200'
-                  }`}>
-                    {formatOutput(instance.output)}
-                  </pre>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No output available</p>
+            <div className="p-4">
+              <div className="flex items-center gap-2 mb-3">
+                <h4 className="text-sm font-medium">Orchestration Graph</h4>
+                {explainFetching && !explainLoading && (
+                  <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
                 )}
               </div>
-              
-              {/* Nodes Section */}
-              <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <h4 className="text-sm font-medium">Execution Nodes</h4>
-                  {nodesFetching && !nodesLoading && (
-                    <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
-                  )}
+              {explainLoading ? (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                  <RefreshCw className="h-4 w-4 animate-spin" />
+                  Loading...
                 </div>
-                {nodesLoading ? (
-                  <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                    <RefreshCw className="h-4 w-4 animate-spin" />
-                    Loading nodes...
-                  </div>
-                ) : nodesData && nodesData.nodes.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-xs border rounded">
-                      <thead>
-                        <tr className="bg-muted/50 border-b">
-                          <th className="text-left p-2 font-medium">Exec</th>
-                          <th className="text-left p-2 font-medium">Type</th>
-                          <th className="text-left p-2 font-medium">Status</th>
-                          <th className="text-left p-2 font-medium">Query</th>
-                          <th className="text-left p-2 font-medium">Result</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {nodesData.nodes.map((node, idx) => {
-                          const nodeStatus = getStatusConfig(node.status);
-                          const typeColor = NODE_TYPE_COLORS[node.node_type] || 'text-slate-400 bg-slate-500/20';
-                          return (
-                            <tr key={`${node.execution_id}-${node.node_id}-${idx}`} className="border-b last:border-0">
-                              <td className="p-2 font-mono text-muted-foreground">#{node.execution_id}</td>
-                              <td className="p-2">
-                                <span className={`px-1.5 py-0.5 rounded ${typeColor}`}>
-                                  {node.node_type}
-                                </span>
-                              </td>
-                              <td className="p-2">
-                                <span className={`inline-flex items-center gap-1 ${nodeStatus.color}`}>
-                                  {nodeStatus.icon}
-                                </span>
-                              </td>
-                              <td className="p-2 max-w-xs">
-                                {node.query ? (
-                                  <code className="block bg-muted p-1 rounded truncate" title={node.query}>
-                                    {node.query.length > 50 ? node.query.slice(0, 50) + '...' : node.query}
-                                  </code>
-                                ) : '—'}
-                              </td>
-                              <td className="p-2 max-w-xs">
-                                {node.result ? (
-                                  <code className={`block p-1 rounded truncate ${
-                                    node.status.toLowerCase() === 'failed' ? 'bg-red-500/10 text-red-300' : 'bg-muted'
-                                  }`} title={node.result}>
-                                    {node.result.length > 50 ? node.result.slice(0, 50) + '...' : node.result}
-                                  </code>
-                                ) : '—'}
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground">No execution nodes found</p>
-                )}
-              </div>
+              ) : explainData ? (
+                <pre className="font-mono text-xs bg-slate-900 text-slate-200 p-4 rounded overflow-x-auto whitespace-pre">
+                  {explainData.explain}
+                </pre>
+              ) : (
+                <p className="text-xs text-muted-foreground">No explain data available</p>
+              )}
             </div>
           </td>
         </tr>
