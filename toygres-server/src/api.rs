@@ -740,12 +740,12 @@ async fn get_pg_durable_orchestrations(
     // Query the pg_durable instances using durable.list_instances() function
     let status_filter = query.status.as_deref();
     
-    let orchestrations = sqlx::query_as::<_, (String, Option<String>, Option<String>, String, i64, Option<String>)>(
+    let functions = sqlx::query_as::<_, (String, Option<String>, Option<String>, String, i64, Option<String>)>(
         r#"
         SELECT 
             instance_id,
             label,
-            orchestration_name,
+            function_name,
             status,
             execution_count,
             output
@@ -765,13 +765,13 @@ async fn get_pg_durable_orchestrations(
         }
     })?;
     
-    let orchestrations_json: Vec<serde_json::Value> = orchestrations
+    let functions_json: Vec<serde_json::Value> = functions
         .into_iter()
-        .map(|(instance_id, label, orchestration_name, status, execution_count, output)| {
+        .map(|(instance_id, label, function_name, status, execution_count, output)| {
             serde_json::json!({
                 "instance_id": instance_id,
                 "label": label,
-                "orchestration_name": orchestration_name,
+                "function_name": function_name,
                 "status": status,
                 "execution_count": execution_count,
                 "output": output,
@@ -782,8 +782,8 @@ async fn get_pg_durable_orchestrations(
     Ok(Json(serde_json::json!({
         "instance_name": name,
         "image_type": image_type,
-        "count": orchestrations_json.len(),
-        "orchestrations": orchestrations_json,
+        "count": functions_json.len(),
+        "functions": functions_json,
     })))
 }
 

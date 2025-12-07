@@ -78,7 +78,7 @@ function ExpandableInstanceRow({
   instance: {
     instance_id: string;
     label: string | null;
-    orchestration_name: string | null;
+    function_name: string | null;
     status: string;
     execution_count: number;
     output: string | null;
@@ -116,7 +116,7 @@ function ExpandableInstanceRow({
         </td>
         <td className="p-3 font-mono text-xs">{instance.instance_id}</td>
         <td className="p-3 text-sm">{instance.label || '—'}</td>
-        <td className="p-3 text-sm text-muted-foreground">{instance.orchestration_name || '—'}</td>
+        <td className="p-3 text-sm text-muted-foreground">{instance.function_name || '—'}</td>
         <td className="p-3">
           <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded ${statusConfig.bgColor} ${statusConfig.color}`}>
             {statusConfig.icon}
@@ -126,13 +126,13 @@ function ExpandableInstanceRow({
         <td className="p-3 text-center text-sm">{instance.execution_count}</td>
       </tr>
       
-      {/* Expanded Details - Explain Visualization */}
+      {/* Expanded Details - durable.explain() output */}
       {isExpanded && (
         <tr className="bg-muted/20">
           <td colSpan={6} className="p-0">
             <div className="p-4">
               <div className="flex items-center gap-2 mb-3">
-                <h4 className="text-sm font-medium">Orchestration Graph</h4>
+                <h4 className="text-sm font-medium">Function Graph</h4>
                 {explainFetching && !explainLoading && (
                   <RefreshCw className="h-3 w-3 animate-spin text-muted-foreground" />
                 )}
@@ -147,7 +147,7 @@ function ExpandableInstanceRow({
                   {explainData.explain}
                 </pre>
               ) : (
-                <p className="text-xs text-muted-foreground">No explain data available</p>
+                <p className="text-xs text-muted-foreground">No data available</p>
               )}
             </div>
           </td>
@@ -163,8 +163,8 @@ export function PgDurableOrchestrations({ instanceName }: PgDurableOrchestration
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
 
   const { data, isLoading, error, refetch, isFetching } = useQuery({
-    queryKey: ['pg-durable-orchestrations', instanceName, limit, statusFilter],
-    queryFn: () => api.getPgDurableOrchestrations(instanceName, limit, statusFilter || undefined),
+    queryKey: ['pg-durable-functions', instanceName, limit, statusFilter],
+    queryFn: () => api.getPgDurableFunctions(instanceName, limit, statusFilter || undefined),
     refetchInterval: 10000,
     staleTime: 5000,
   });
@@ -241,7 +241,7 @@ export function PgDurableOrchestrations({ instanceName }: PgDurableOrchestration
               Retry
             </Button>
           </div>
-        ) : data && data.orchestrations.length > 0 ? (
+        ) : data && data.functions.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -255,19 +255,19 @@ export function PgDurableOrchestrations({ instanceName }: PgDurableOrchestration
                 </tr>
               </thead>
               <tbody>
-                {data.orchestrations.map((orch) => (
+                {data.functions.map((fn) => (
                   <ExpandableInstanceRow
-                    key={orch.instance_id}
-                    instance={orch}
+                    key={fn.instance_id}
+                    instance={fn}
                     pgInstanceName={instanceName}
-                    isExpanded={expandedIds.has(orch.instance_id)}
-                    onToggle={() => toggleExpanded(orch.instance_id)}
+                    isExpanded={expandedIds.has(fn.instance_id)}
+                    onToggle={() => toggleExpanded(fn.instance_id)}
                   />
                 ))}
               </tbody>
             </table>
             <div className="flex justify-between items-center pt-3 text-xs text-muted-foreground">
-              <span>Showing {data.orchestrations.length} of {data.count} function instances</span>
+              <span>Showing {data.functions.length} of {data.count} function instances</span>
               <span className="text-muted-foreground">Click a row to view details</span>
             </div>
           </div>

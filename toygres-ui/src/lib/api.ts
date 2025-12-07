@@ -77,14 +77,14 @@ export const api = {
     return fetchJson(`${API_BASE}/api/instances/${name}/logs?tail_lines=${tailLines}`);
   },
 
-  async getPgDurableOrchestrations(name: string, limit: number = 50, status?: string): Promise<{
+  async getPgDurableFunctions(name: string, limit: number = 50, status?: string): Promise<{
     instance_name: string;
     image_type: string;
     count: number;
-    orchestrations: Array<{
+    functions: Array<{
       instance_id: string;
       label: string | null;
-      orchestration_name: string | null;
+      function_name: string | null;
       status: string;
       execution_count: number;
       output: string | null;
