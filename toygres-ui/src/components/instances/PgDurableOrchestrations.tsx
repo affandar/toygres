@@ -241,7 +241,7 @@ export function PgDurableOrchestrations({ instanceName }: PgDurableOrchestration
               Retry
             </Button>
           </div>
-        ) : data && data.functions.length > 0 ? (
+        ) : data && data.functions && data.functions.length > 0 ? (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>

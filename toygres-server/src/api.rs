@@ -749,7 +749,7 @@ async fn get_pg_durable_orchestrations(
             status,
             execution_count,
             output
-        FROM durable.list_instances($1, $2)
+        FROM durable.list_instances($1::text, $2::integer)
         "#
     )
     .bind(status_filter)
@@ -759,7 +759,7 @@ async fn get_pg_durable_orchestrations(
     .map_err(|e| {
         let err_str = e.to_string();
         if err_str.contains("does not exist") {
-            AppError::BadRequest("durable schema not found. The pg_durable extension may not be initialized.".to_string())
+            AppError::BadRequest(format!("durable schema error: {}", err_str))
         } else {
             AppError::Internal(format!("Failed to query pg_durable instances: {}", e))
         }
