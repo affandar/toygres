@@ -672,7 +672,7 @@ fn default_pg_durable_limit() -> i64 {
 }
 
 /// Get pg_durable orchestration executions from a PostgreSQL instance
-/// This connects to the instance's PostgreSQL and queries the pg_durable schema
+/// This connects to the instance's PostgreSQL and queries the df schema
 async fn get_pg_durable_orchestrations(
     State(_state): State<AppState>,
     Path(name): Path<String>,
@@ -737,7 +737,7 @@ async fn get_pg_durable_orchestrations(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
     
-    // Query the pg_durable instances using durable.list_instances() function
+    // Query the pg_durable instances using df.list_instances() function
     let status_filter = query.status.as_deref();
     
     let functions = sqlx::query_as::<_, (String, Option<String>, Option<String>, String, i64, Option<String>)>(
@@ -749,7 +749,7 @@ async fn get_pg_durable_orchestrations(
             status,
             execution_count,
             output
-        FROM durable.list_instances($1::text, $2::integer)
+        FROM df.list_instances($1::text, $2::integer)
         "#
     )
     .bind(status_filter)
@@ -759,7 +759,7 @@ async fn get_pg_durable_orchestrations(
     .map_err(|e| {
         let err_str = e.to_string();
         if err_str.contains("does not exist") {
-            AppError::BadRequest(format!("durable schema error: {}", err_str))
+            AppError::BadRequest(format!("df schema error: {}", err_str))
         } else {
             AppError::Internal(format!("Failed to query pg_durable instances: {}", e))
         }
@@ -798,7 +798,7 @@ fn default_executions() -> i32 {
 }
 
 /// Get nodes for a specific pg_durable orchestration instance
-/// Calls durable.instance_nodes(instance_id, last_n_executions) function
+/// Calls df.instance_nodes(instance_id, last_n_executions) function
 async fn get_pg_durable_instance_nodes(
     State(_state): State<AppState>,
     Path((name, instance_id)): Path<(String, String)>,
@@ -855,10 +855,10 @@ async fn get_pg_durable_instance_nodes(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
     
-    // Call durable.instance_nodes(instance_id, last_n_executions)
+    // Call df.instance_nodes(instance_id, last_n_executions)
     let nodes = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>)>(
         "SELECT execution_id, node_id, node_type, query, result_name, left_node, right_node, status, result 
-         FROM durable.instance_nodes($1, $2)"
+         FROM df.instance_nodes($1, $2)"
     )
     .bind(&instance_id)
     .bind(query.executions)
@@ -893,7 +893,7 @@ async fn get_pg_durable_instance_nodes(
 }
 
 /// Get explain output for a specific pg_durable orchestration instance
-/// Calls durable.explain(instance_id) function for visualization
+/// Calls df.explain(instance_id) function for visualization
 async fn get_pg_durable_explain(
     State(_state): State<AppState>,
     Path((name, instance_id)): Path<(String, String)>,
@@ -949,9 +949,9 @@ async fn get_pg_durable_explain(
         .await
         .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
     
-    // Call durable.explain(instance_id)
+    // Call df.explain(instance_id)
     let result = sqlx::query_as::<_, (String,)>(
-        "SELECT durable.explain($1)"
+        "SELECT df.explain($1)"
     )
     .bind(&instance_id)
     .fetch_one(&instance_pool)
