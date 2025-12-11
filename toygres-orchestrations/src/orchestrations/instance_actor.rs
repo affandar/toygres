@@ -83,9 +83,8 @@ pub async fn instance_actor_orchestration(
             
             let input_json = serde_json::to_string(&input)
                 .map_err(|e| format!("Failed to serialize input: {}", e))?;
-            ctx.continue_as_new(input_json);
-            
-            // Return immediately after continue_as_new
+            ctx.continue_as_new(input_json).await
+                .map_err(|e| format!("Failed to continue as new: {}", e))?;
             return Ok(());
         }
     };
@@ -179,9 +178,9 @@ pub async fn instance_actor_orchestration(
     let input_json = serde_json::to_string(&input)
         .map_err(|e| format!("Failed to serialize input: {}", e))?;
     
-    ctx.continue_as_new(input_json);
-    
     // Return immediately after continue_as_new (the runtime will restart this orchestration)
+    ctx.continue_as_new(input_json).await
+        .map_err(|e| format!("Failed to continue as new: {}", e))?;
     Ok(())
 }
 
