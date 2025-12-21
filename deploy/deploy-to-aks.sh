@@ -182,6 +182,11 @@ done
 
 echo -e "${GREEN}✓ Kubernetes resources deployed${NC}"
 
+# Force restart deployments to pick up latest images
+echo -e "\n${BLUE}🔄 Restarting deployments to pick up latest images...${NC}"
+kubectl rollout restart deployment/toygres-server -n toygres-system
+kubectl rollout restart deployment/toygres-ui -n toygres-system
+
 # Wait for deployments
 echo -e "\n${BLUE}⏳ Waiting for deployments to be ready...${NC}"
 kubectl rollout status deployment/toygres-server -n toygres-system --timeout=300s
