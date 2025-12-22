@@ -7,7 +7,6 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use chrono;
 use duroxide::Client;
 use duroxide_pg::PostgresProvider;
 use serde::Serialize;
@@ -43,6 +42,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances/bulk", post(bulk_create_instances))
         .route("/api/instances/bulk/delete", post(bulk_delete_instances))
         .route("/api/instances/:name", get(get_instance).delete(delete_instance))
+        .route("/api/instances/:name/stop", post(stop_instance))
+        .route("/api/instances/:name/start", post(start_instance))
+        .route("/api/instances/:name/restart", post(restart_instance))
         .route("/api/instances/:name/logs", get(get_instance_logs))
         .route("/api/instances/:name/durable-orchestrations", get(get_pg_durable_orchestrations))
         .route("/api/instances/:name/durable-orchestrations/:instance_id/nodes", get(get_pg_durable_instance_nodes))
@@ -556,6 +558,240 @@ async fn delete_instance(
         "instance_name": name,
         "k8s_name": k8s_name,
         "orchestration_id": orchestration_id,
+    })))
+}
+
+// ============================================================================
+// Instance Lifecycle (Stop/Start/Restart)
+// ============================================================================
+
+async fn stop_instance(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    use toygres_orchestrations::k8s_client::get_k8s_client;
+    use k8s_openapi::api::apps::v1::StatefulSet;
+    use kube::api::{Api, Patch, PatchParams};
+    
+    // Look up the instance by name
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT k8s_name, namespace, state::text FROM toygres_cms.instances WHERE dns_name = $1 AND state NOT IN ('deleted', 'deleting') LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (k8s_name, namespace, state) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    if state == "stopped" {
+        return Ok(Json(serde_json::json!({
+            "instance_name": name,
+            "k8s_name": k8s_name,
+            "status": "already_stopped",
+            "message": "Instance is already stopped"
+        })));
+    }
+    
+    // Scale StatefulSet to 0
+    let client = get_k8s_client().await
+        .map_err(|e| AppError::Internal(format!("Failed to create K8s client: {}", e)))?;
+    
+    let statefulsets: Api<StatefulSet> = Api::namespaced(client.clone(), &namespace);
+    
+    let patch = serde_json::json!({
+        "spec": {
+            "replicas": 0
+        }
+    });
+    
+    statefulsets
+        .patch(&k8s_name, &PatchParams::apply("toygres"), &Patch::Merge(&patch))
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to stop instance: {}", e)))?;
+    
+    // Update CMS state to 'stopped'
+    sqlx::query(
+        "UPDATE toygres_cms.instances SET state = 'stopped', stopped_at = NOW(), updated_at = NOW() WHERE k8s_name = $1"
+    )
+    .bind(&k8s_name)
+    .execute(&pool)
+    .await
+    .context("Failed to update instance state")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "k8s_name": k8s_name,
+        "status": "stopped",
+        "message": "Instance stopped successfully"
+    })))
+}
+
+async fn start_instance(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    use toygres_orchestrations::k8s_client::get_k8s_client;
+    use k8s_openapi::api::apps::v1::StatefulSet;
+    use kube::api::{Api, Patch, PatchParams};
+    
+    // Look up the instance by name
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT k8s_name, namespace, state::text FROM toygres_cms.instances WHERE dns_name = $1 AND state NOT IN ('deleted', 'deleting') LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (k8s_name, namespace, state) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    if state == "running" {
+        return Ok(Json(serde_json::json!({
+            "instance_name": name,
+            "k8s_name": k8s_name,
+            "status": "already_running",
+            "message": "Instance is already running"
+        })));
+    }
+    
+    // Scale StatefulSet to 1
+    let client = get_k8s_client().await
+        .map_err(|e| AppError::Internal(format!("Failed to create K8s client: {}", e)))?;
+    
+    let statefulsets: Api<StatefulSet> = Api::namespaced(client.clone(), &namespace);
+    
+    let patch = serde_json::json!({
+        "spec": {
+            "replicas": 1
+        }
+    });
+    
+    statefulsets
+        .patch(&k8s_name, &PatchParams::apply("toygres"), &Patch::Merge(&patch))
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to start instance: {}", e)))?;
+    
+    // Update CMS state to 'running'
+    sqlx::query(
+        "UPDATE toygres_cms.instances SET state = 'running', started_at = NOW(), updated_at = NOW() WHERE k8s_name = $1"
+    )
+    .bind(&k8s_name)
+    .execute(&pool)
+    .await
+    .context("Failed to update instance state")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "k8s_name": k8s_name,
+        "status": "started",
+        "message": "Instance started successfully"
+    })))
+}
+
+async fn restart_instance(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    use toygres_orchestrations::k8s_client::get_k8s_client;
+    use k8s_openapi::api::apps::v1::StatefulSet;
+    use kube::api::{Api, Patch, PatchParams};
+    
+    // Look up the instance by name
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, String, String)>(
+        "SELECT k8s_name, namespace, state::text FROM toygres_cms.instances WHERE dns_name = $1 AND state NOT IN ('deleted', 'deleting') LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (k8s_name, namespace, state) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    if state == "stopped" {
+        return Err(AppError::BadRequest("Cannot restart a stopped instance. Start it first.".to_string()));
+    }
+    
+    // Trigger rollout restart by updating annotation
+    let client = get_k8s_client().await
+        .map_err(|e| AppError::Internal(format!("Failed to create K8s client: {}", e)))?;
+    
+    let statefulsets: Api<StatefulSet> = Api::namespaced(client.clone(), &namespace);
+    
+    let restart_time = chrono::Utc::now().to_rfc3339();
+    let patch = serde_json::json!({
+        "spec": {
+            "template": {
+                "metadata": {
+                    "annotations": {
+                        "toygres.io/restartedAt": restart_time
+                    }
+                }
+            }
+        }
+    });
+    
+    statefulsets
+        .patch(&k8s_name, &PatchParams::apply("toygres"), &Patch::Merge(&patch))
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to restart instance: {}", e)))?;
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "k8s_name": k8s_name,
+        "status": "restarting",
+        "restarted_at": restart_time,
+        "message": "Instance restart triggered successfully"
     })))
 }
 

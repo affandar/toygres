@@ -120,6 +120,7 @@ async fn build_connection_strings(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::activity_types::ImageType;
     
     #[test]
     fn test_get_connection_strings_input_serialization() {
@@ -129,6 +130,7 @@ mod tests {
             password: "password123".to_string(),
             use_load_balancer: true,
             dns_label: Some("testlabel".to_string()),
+            image_type: ImageType::Stock,
         };
         
         let json = serde_json::to_string(&input).unwrap();

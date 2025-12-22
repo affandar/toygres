@@ -4,6 +4,23 @@
 
 Toygres is a **Rust-based control plane** for hosting PostgreSQL containers as a service on Azure Kubernetes Service (AKS). It uses [Duroxide](https://github.com/affandar/duroxide) for durable workflow orchestration.
 
+## ⚠️ Implementation Guidelines
+
+**No half-baked features.** When implementing a new capability:
+1. **Don't add activities** unless they are called by an orchestration
+2. **Don't add orchestrations** unless they are invoked by the server API
+3. **Don't add API endpoints** unless they are exposed in the UI
+4. Every feature must be **end-to-end complete**: UI → API → Orchestration → Activities (if durable) or UI → API → K8s (if simple/atomic)
+
+**Before removing "unused" activities:**
+1. Search for the activity's `NAME` constant in orchestrations, not just the module path:
+   ```bash
+   grep -r "activity_name" toygres-orchestrations/src/orchestrations/
+   ```
+2. Activities may be referenced via `cms::activity_name::NAME` pattern (not `activities::`)
+3. Check both direct calls and `schedule_activity_typed` / `schedule_activity_with_retry_typed` invocations
+4. **Always run `cargo build` after removals** before committing to catch missed references
+
 ## Architecture
 
 ### Crate Structure
@@ -88,6 +105,11 @@ cd toygres-ui && npm run dev        # Frontend dev server on :3000
 REST API on `:8080` - see `toygres-server/src/api.rs`:
 - `POST /api/instances` - Start `CreateInstanceOrchestration`
 - `DELETE /api/instances/:name` - Start `DeleteInstanceOrchestration`
+- `POST /api/instances/:name/stop` - Stop instance (scale to 0 replicas)
+- `POST /api/instances/:name/start` - Start instance (scale to 1 replica)
+- `POST /api/instances/:name/restart` - Restart instance (rollout restart)
+- `GET /api/instances` - List instances from CMS
+- `GET /api/server/orchestrations` - List all Duroxide orchestrations
 - `GET /api/instances` - List instances from CMS
 - `GET /api/server/orchestrations` - List all Duroxide orchestrations
 

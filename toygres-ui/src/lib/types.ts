@@ -1,10 +1,12 @@
 export type ImageType = 'stock' | 'pg_durable';
 
+export type InstanceState = 'creating' | 'running' | 'stopped' | 'deleting' | 'deleted' | 'failed';
+
 export interface Instance {
   user_name: string;
   k8s_name: string;
   dns_name: string | null;
-  state: 'creating' | 'running' | 'deleting' | 'deleted' | 'failed';
+  state: InstanceState;
   health_status: 'unknown' | 'healthy' | 'unhealthy';
   postgres_version: string;
   storage_size_gb: number;

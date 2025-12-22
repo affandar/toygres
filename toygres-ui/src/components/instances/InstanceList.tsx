@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
-import { Database, Plus, Trash2, X } from 'lucide-react';
+import { Database, Plus, Trash2, X, Play, Square, RotateCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { api } from '@/lib/api';
@@ -31,6 +31,39 @@ export function InstanceList() {
     },
     onError: (error: Error) => {
       showToast('error', `Failed to delete: ${error.message}`);
+    },
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: (name: string) => api.stopInstance(name),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to stop: ${error.message}`);
+    },
+  });
+
+  const startMutation = useMutation({
+    mutationFn: (name: string) => api.startInstance(name),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to start: ${error.message}`);
+    },
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: (name: string) => api.restartInstance(name),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to restart: ${error.message}`);
     },
   });
 
@@ -129,6 +162,7 @@ export function InstanceList() {
                     <th className="pb-3 font-medium">Version</th>
                     <th className="pb-3 font-medium">Storage</th>
                     <th className="pb-3 font-medium">DNS</th>
+                    <th className="pb-3 font-medium text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -189,6 +223,52 @@ export function InstanceList() {
                         onClick={() => navigate(`/instances/${instance.user_name}`)}
                       >
                         {instance.dns_name || '-'}
+                      </td>
+                      <td className="py-3 text-right">
+                        <div className="flex justify-end gap-1">
+                          {instance.state === 'running' && (
+                            <>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  stopMutation.mutate(instance.user_name);
+                                }}
+                                disabled={stopMutation.isPending}
+                                title="Stop instance"
+                              >
+                                <Square className="h-4 w-4" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  restartMutation.mutate(instance.user_name);
+                                }}
+                                disabled={restartMutation.isPending}
+                                title="Restart instance"
+                              >
+                                <RotateCw className={`h-4 w-4 ${restartMutation.isPending ? 'animate-spin' : ''}`} />
+                              </Button>
+                            </>
+                          )}
+                          {instance.state === 'stopped' && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                startMutation.mutate(instance.user_name);
+                              }}
+                              disabled={startMutation.isPending}
+                              title="Start instance"
+                            >
+                              <Play className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}

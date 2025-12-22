@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, Trash2, AlertTriangle, FileText, GitBranch } from 'lucide-react';
+import { ArrowLeft, Copy, Trash2, AlertTriangle, FileText, GitBranch, Play, Square, RotateCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/lib/toast';
@@ -32,6 +32,42 @@ export function InstanceDetail() {
     },
     onError: (error: Error) => {
       showToast('error', `Failed to delete instance: ${error.message}`);
+    },
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: (instanceName: string) => api.stopInstance(instanceName),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', name] });
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to stop instance: ${error.message}`);
+    },
+  });
+
+  const startMutation = useMutation({
+    mutationFn: (instanceName: string) => api.startInstance(instanceName),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', name] });
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to start instance: ${error.message}`);
+    },
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: (instanceName: string) => api.restartInstance(instanceName),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', name] });
+      queryClient.invalidateQueries({ queryKey: ['instances'] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to restart instance: ${error.message}`);
     },
   });
 
@@ -69,14 +105,47 @@ export function InstanceDetail() {
             <p className="text-sm text-muted-foreground">K8s: {instance.k8s_name}</p>
           </div>
         </div>
-        <Button 
-          variant="destructive"
-          onClick={() => setShowDeleteModal(true)}
-          disabled={instance.state === 'deleting' || instance.state === 'deleted'}
-        >
-          <Trash2 className="h-4 w-4 mr-2" />
-          Delete Instance
-        </Button>
+        <div className="flex items-center space-x-2">
+          {/* Lifecycle Controls */}
+          {instance.state === 'running' && (
+            <>
+              <Button
+                variant="outline"
+                onClick={() => name && stopMutation.mutate(name)}
+                disabled={stopMutation.isPending}
+              >
+                <Square className="h-4 w-4 mr-2" />
+                {stopMutation.isPending ? 'Stopping...' : 'Stop'}
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => name && restartMutation.mutate(name)}
+                disabled={restartMutation.isPending}
+              >
+                <RotateCw className={`h-4 w-4 mr-2 ${restartMutation.isPending ? 'animate-spin' : ''}`} />
+                {restartMutation.isPending ? 'Restarting...' : 'Restart'}
+              </Button>
+            </>
+          )}
+          {instance.state === 'stopped' && (
+            <Button
+              variant="default"
+              onClick={() => name && startMutation.mutate(name)}
+              disabled={startMutation.isPending}
+            >
+              <Play className="h-4 w-4 mr-2" />
+              {startMutation.isPending ? 'Starting...' : 'Start'}
+            </Button>
+          )}
+          <Button 
+            variant="destructive"
+            onClick={() => setShowDeleteModal(true)}
+            disabled={instance.state === 'deleting' || instance.state === 'deleted'}
+          >
+            <Trash2 className="h-4 w-4 mr-2" />
+            Delete
+          </Button>
+        </div>
       </div>
 
       {/* Delete Confirmation Modal */}

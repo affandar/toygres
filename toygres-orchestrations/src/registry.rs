@@ -63,10 +63,6 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::test_connection::NAME,
             activities::test_connection::activity,
         )
-        .register_typed(
-            activities::raise_event::NAME,
-            activities::raise_event::activity,
-        )
         // CMS activities
         .register_typed(
             activities::cms::create_instance_record::NAME,

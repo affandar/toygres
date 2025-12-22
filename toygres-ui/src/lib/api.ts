@@ -154,6 +154,41 @@ export const api = {
     });
   },
 
+  // Instance Lifecycle Controls
+  async stopInstance(name: string): Promise<{
+    instance_name: string;
+    k8s_name: string;
+    status: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/stop`, {
+      method: 'POST',
+    });
+  },
+
+  async startInstance(name: string): Promise<{
+    instance_name: string;
+    k8s_name: string;
+    status: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/start`, {
+      method: 'POST',
+    });
+  },
+
+  async restartInstance(name: string): Promise<{
+    instance_name: string;
+    k8s_name: string;
+    status: string;
+    restarted_at?: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/restart`, {
+      method: 'POST',
+    });
+  },
+
   async bulkCreateInstances(data: {
     base_name: string;
     count: number;
