@@ -1,5 +1,6 @@
 # TODOs for Toygres
 
+- Fix the password field, don't hardcode. 
 - Ergonomics; change string literals for activity/orch names to fn names
 - Events!!
 - LLM enable
