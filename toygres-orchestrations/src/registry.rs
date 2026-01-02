@@ -63,6 +63,10 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::test_connection::NAME,
             activities::test_connection::activity,
         )
+        .register_typed(
+            activities::set_password::NAME,
+            activities::set_password::activity,
+        )
         // CMS activities
         .register_typed(
             activities::cms::create_instance_record::NAME,

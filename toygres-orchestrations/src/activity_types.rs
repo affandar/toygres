@@ -134,10 +134,12 @@ pub struct GetConnectionStringsInput {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct GetConnectionStringsOutput {
-    /// IP-based connection string
+    /// IP-based connection string (external, for clients outside the cluster)
     pub ip_connection_string: String,
     /// DNS-based connection string (if DNS label provided)
     pub dns_connection_string: Option<String>,
+    /// Internal connection string (ClusterIP-based, for use within the cluster)
+    pub internal_connection_string: String,
     /// External IP address (if LoadBalancer)
     pub external_ip: Option<String>,
     /// Azure DNS name (if DNS label provided)
@@ -160,6 +162,29 @@ pub struct TestConnectionOutput {
     pub version: String,
     /// Whether connection succeeded
     pub connected: bool,
+}
+
+// ============================================================================
+// Set Password Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetPasswordInput {
+    /// Kubernetes namespace
+    pub namespace: String,
+    /// Instance name
+    pub instance_name: String,
+    /// New password to set
+    pub new_password: String,
+    /// Internal connection string (ClusterIP-based, accessible from within the cluster)
+    /// This should use the current/default password to connect
+    pub internal_connection_string: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetPasswordOutput {
+    /// Whether password was set successfully
+    pub success: bool,
 }
 
 // ============================================================================

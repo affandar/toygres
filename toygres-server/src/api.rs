@@ -97,6 +97,51 @@ async fn health_check() -> impl IntoResponse {
 // Instances
 // ============================================================================
 
+/// URL encode the password portion of a PostgreSQL connection string
+/// Input: postgresql://user:password@host:port/db
+/// Output: postgresql://user:encoded_password@host:port/db
+fn url_encode_connection_string_password(conn_str: &str) -> String {
+    // Parse: postgresql://user:password@host:port/db
+    if let Some(rest) = conn_str.strip_prefix("postgresql://") {
+        if let Some(at_pos) = rest.find('@') {
+            let user_pass = &rest[..at_pos];
+            let host_db = &rest[at_pos..];
+            
+            if let Some(colon_pos) = user_pass.find(':') {
+                let user = &user_pass[..colon_pos];
+                let password = &user_pass[colon_pos + 1..];
+                
+                // URL encode the password
+                let encoded_password = url_encode_password(password);
+                
+                return format!("postgresql://{}:{}{}",user, encoded_password, host_db);
+            }
+        }
+    }
+    // Return original if parsing fails
+    conn_str.to_string()
+}
+
+/// URL encode a password for use in connection strings
+fn url_encode_password(password: &str) -> String {
+    let mut encoded = String::with_capacity(password.len() * 3);
+    for c in password.chars() {
+        match c {
+            // Safe characters (alphanumeric and a few others)
+            'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~' => {
+                encoded.push(c);
+            }
+            // Everything else needs encoding
+            _ => {
+                for byte in c.to_string().as_bytes() {
+                    encoded.push_str(&format!("%{:02X}", byte));
+                }
+            }
+        }
+    }
+    encoded
+}
+
 #[derive(Debug, Serialize)]
 struct InstanceSummary {
     user_name: String,
@@ -197,6 +242,12 @@ async fn get_instance(
     match row {
         Some(row) => {
             use sqlx::Row;
+            // URL encode passwords in connection strings for safe copy-paste
+            let ip_conn: Option<String> = row.get("ip_connection_string");
+            let dns_conn: Option<String> = row.get("dns_connection_string");
+            let ip_conn_encoded = ip_conn.map(|s| url_encode_connection_string_password(&s));
+            let dns_conn_encoded = dns_conn.map(|s| url_encode_connection_string_password(&s));
+            
             Ok(Json(serde_json::json!({
                 "id": row.get::<String, _>("id"),
                 "user_name": row.get::<String, _>("user_name"),
@@ -207,8 +258,8 @@ async fn get_instance(
                 "postgres_version": row.get::<String, _>("postgres_version"),
                 "storage_size_gb": row.get::<i32, _>("storage_size_gb"),
                 "use_load_balancer": row.get::<bool, _>("use_load_balancer"),
-                "ip_connection_string": row.get::<Option<String>, _>("ip_connection_string"),
-                "dns_connection_string": row.get::<Option<String>, _>("dns_connection_string"),
+                "ip_connection_string": ip_conn_encoded,
+                "dns_connection_string": dns_conn_encoded,
                 "external_ip": row.get::<Option<String>, _>("external_ip"),
                 "created_at": row.get::<String, _>("created_at"),
                 "updated_at": row.get::<String, _>("updated_at"),

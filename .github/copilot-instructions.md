@@ -71,6 +71,13 @@ cargo test --workspace
 ./scripts/stop-control-plane.sh     # Stops everything
 ```
 
+**Testing Complex Changes Locally**: For complex changes (new orchestrations, activities, or multi-step workflows), test locally first using `./scripts/start-control-plane.sh` before deploying to AKS. This provides:
+- Faster iteration (no image build/push cycle)
+- Debug-level logging by default (vs info in AKS)
+- Easier log access via `./toygres server logs -f`
+
+To pause AKS while testing locally: `kubectl scale deployment toygres-server -n toygres-system --replicas=0`
+
 ### AKS Deployment
 ```bash
 # Deploy to AKS (builds images, pushes to ACR, applies K8s manifests)
@@ -121,6 +128,33 @@ REST API on `:8080` - see `toygres-server/src/api.rs`:
 - **Activity naming**: `"crate-name::activity::kebab-case-name"`
 - **Orchestration naming**: `"crate-name::orchestration::kebab-case-name"`
 - **Input/Output types**: Defined in `toygres-orchestrations/src/types.rs` and `activity_types.rs`
+
+## PostgreSQL Image Behavior
+
+**POSTGRES_PASSWORD env var works correctly**: Both stock PostgreSQL and pg_durable images respect the `POSTGRES_PASSWORD` environment variable on fresh PVCs. No post-deployment password manipulation is needed for new instances.
+
+**Password drift only occurs on existing PVCs**: If a PVC already has PostgreSQL data from a previous deployment with a different password, the `POSTGRES_PASSWORD` env var is ignored. This only affects redeployments to existing storage, not fresh instances.
+
+**URL encode passwords in connection strings**: Passwords with special characters (`$`, `!`, `@`, etc.) must be URL encoded when embedded in PostgreSQL connection strings:
+- `$` → `%24`, `!` → `%21`, `@` → `%40`
+- The API layer encodes passwords when returning connection strings (for backwards compatibility with existing CMS data)
+- New instances store encoded passwords directly via `get_connection_strings` activity
+
+## Debugging Tips
+
+**Extract detailed PostgreSQL errors**: When using `tokio-postgres`, extract the full `db_error` for diagnostics:
+```rust
+if let Some(db_err) = e.as_db_error() {
+    format!("severity={}, code={}, message={}", 
+        db_err.severity(), db_err.code().code(), db_err.message())
+}
+```
+Common codes: `28P01` = password authentication failed, `28000` = invalid authorization
+
+**Test assumptions with direct connections**: Before adding complex workarounds, verify assumptions by connecting directly:
+```bash
+PGPASSWORD=<password> psql "postgresql://postgres@<ip>:5432/postgres?gssencmode=disable" -c "SELECT 1"
+```
 
 ## Adding New Features
 

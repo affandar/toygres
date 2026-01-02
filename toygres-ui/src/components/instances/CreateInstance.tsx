@@ -12,12 +12,12 @@ import { api } from '@/lib/api';
 // - Contains uppercase letters
 // - Contains lowercase letters
 // - Contains numbers
-// - Contains special characters
+// - Contains special characters (! and $ only for PostgreSQL compatibility)
 function generateSecurePassword(): string {
   const uppercase = 'ABCDEFGHJKLMNPQRSTUVWXYZ'; // Removed I, O to avoid confusion
   const lowercase = 'abcdefghjkmnpqrstuvwxyz'; // Removed i, l, o to avoid confusion
   const numbers = '23456789'; // Removed 0, 1 to avoid confusion
-  const special = '!@#$%^&*';
+  const special = '!$'; // Only ! and $ for PostgreSQL connection string compatibility
   
   // Ensure at least one of each type
   let password = '';

@@ -98,15 +98,8 @@ async fn create_instance_impl(
     let start_time = ctx.utcnow().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
-    // For pg_durable images, use hardcoded postgres/postgres credentials
-    // The pg_durable image currently doesn't support custom passwords
-    let effective_password = match image_type {
-        ImageType::PgDurable => {
-            ctx.trace_info("Using default postgres/postgres credentials for pg_durable image");
-            "postgres".to_string()
-        }
-        ImageType::Stock => input.password.clone(),
-    };
+    // The user's desired password - this is what we want the final password to be
+    let effective_password = input.password.clone();
     
     // Step 1: Deploy PostgreSQL
     ctx.trace_info(format!("Step 1: Deploying PostgreSQL to Kubernetes (image: {})", image_type.as_str()));
@@ -178,6 +171,7 @@ async fn create_instance_impl(
         .as_secs();
     
     // Step 3: Get connection strings
+    // Both pg_durable and stock images correctly use POSTGRES_PASSWORD env var
     ctx.trace_info("Step 3: Getting connection strings");
     let conn_input = GetConnectionStringsInput {
         namespace: namespace.to_string(),
@@ -205,16 +199,19 @@ async fn create_instance_impl(
     ctx.trace_info("Connection strings generated");
     
     // Step 4: Test connection
-    // pg_durable images have a slow init process (~40 seconds) because the init script
-    // causes PostgreSQL to restart, and pg_durable's connection pool times out during shutdown
-    if matches!(image_type, ImageType::PgDurable) {
-        ctx.trace_info("Step 4: Waiting 45 seconds for pg_durable init to complete");
-        ctx.schedule_timer(Duration::from_secs(45)).into_timer().await;
-    }
-    
+    // Use the final password (effective_password) for testing
     ctx.trace_info("Step 4: Testing PostgreSQL connection");
-    let test_connection_string = conn_output.dns_connection_string.clone()
-        .unwrap_or_else(|| conn_output.ip_connection_string.clone());
+    
+    // Build test connection string with the final password
+    let test_connection_string = if let Some(dns) = &conn_output.dns_name {
+        format!("postgresql://postgres:{}@{}:5432/postgres", effective_password, dns)
+    } else if let Some(ip) = &conn_output.external_ip {
+        format!("postgresql://postgres:{}@{}:5432/postgres", effective_password, ip)
+    } else {
+        // Fallback to internal connection with updated password
+        let internal_host = format!("{}-svc.{}.svc.cluster.local", input.name, namespace);
+        format!("postgresql://postgres:{}@{}:5432/postgres", effective_password, internal_host)
+    };
     
     let test_input = TestConnectionInput {
         connection_string: test_connection_string,
@@ -237,12 +234,24 @@ async fn create_instance_impl(
     
     ctx.trace_info(format!("PostgreSQL version: {}", test_output.version));
     
+    // Build final connection strings with the effective password
+    let final_ip_connection_string = if let Some(ip) = &conn_output.external_ip {
+        format!("postgresql://postgres:{}@{}:5432/postgres", effective_password, ip)
+    } else {
+        let internal_host = format!("{}-svc.{}.svc.cluster.local", input.name, namespace);
+        format!("postgresql://postgres:{}@{}:5432/postgres", effective_password, internal_host)
+    };
+    
+    let final_dns_connection_string = conn_output.dns_name.as_ref().map(|dns| {
+        format!("postgresql://postgres:{}@{}:5432/postgres", effective_password, dns)
+    });
+    
     // Build output
     Ok(CreateInstanceOutput {
         instance_name: input.name.clone(),
         namespace: namespace.to_string(),
-        ip_connection_string: conn_output.ip_connection_string,
-        dns_connection_string: conn_output.dns_connection_string,
+        ip_connection_string: final_ip_connection_string,
+        dns_connection_string: final_dns_connection_string,
         external_ip: conn_output.external_ip,
         dns_name: conn_output.dns_name,
         postgres_version: test_output.version,
