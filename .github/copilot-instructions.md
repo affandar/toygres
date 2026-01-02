@@ -6,6 +6,8 @@ Toygres is a **Rust-based control plane** for hosting PostgreSQL containers as a
 
 ## ⚠️ Implementation Guidelines
 
+**Do not commit or push** unless explicitly asked by the user.
+
 **No half-baked features.** When implementing a new capability:
 1. **Don't add activities** unless they are called by an orchestration
 2. **Don't add orchestrations** unless they are invoked by the server API
@@ -128,17 +130,6 @@ REST API on `:8080` - see `toygres-server/src/api.rs`:
 - **Activity naming**: `"crate-name::activity::kebab-case-name"`
 - **Orchestration naming**: `"crate-name::orchestration::kebab-case-name"`
 - **Input/Output types**: Defined in `toygres-orchestrations/src/types.rs` and `activity_types.rs`
-
-## PostgreSQL Image Behavior
-
-**POSTGRES_PASSWORD env var works correctly**: Both stock PostgreSQL and pg_durable images respect the `POSTGRES_PASSWORD` environment variable on fresh PVCs. No post-deployment password manipulation is needed for new instances.
-
-**Password drift only occurs on existing PVCs**: If a PVC already has PostgreSQL data from a previous deployment with a different password, the `POSTGRES_PASSWORD` env var is ignored. This only affects redeployments to existing storage, not fresh instances.
-
-**URL encode passwords in connection strings**: Passwords with special characters (`$`, `!`, `@`, etc.) must be URL encoded when embedded in PostgreSQL connection strings:
-- `$` → `%24`, `!` → `%21`, `@` → `%40`
-- The API layer encodes passwords when returning connection strings (for backwards compatibility with existing CMS data)
-- New instances store encoded passwords directly via `get_connection_strings` activity
 
 ## Debugging Tips
 
