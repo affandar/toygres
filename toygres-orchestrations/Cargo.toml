@@ -45,6 +45,9 @@ tracing = { workspace = true }
 # UUID
 uuid = { workspace = true }
 
+# HTTP client (for system prune activity)
+reqwest = { version = "0.11", features = ["json"] }
+
 # Time
 chrono = { workspace = true }
 

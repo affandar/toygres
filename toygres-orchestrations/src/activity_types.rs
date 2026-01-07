@@ -358,3 +358,70 @@ pub struct RaiseEventOutput {
     pub raised: bool,
 }
 
+// ============================================================================
+// System Prune Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SystemPruneInput {
+    /// Unique run identifier for this pruner instance
+    pub run_id: String,
+    /// Current iteration count
+    pub iteration: u64,
+    /// Delete terminal instances older than N hours (default: 6)
+    #[serde(default = "default_delete_hours")]
+    pub delete_terminal_older_than_hours: u64,
+    /// Keep only the last N executions per instance (default: 1 = current only)
+    #[serde(default = "default_keep_executions")]
+    pub keep_executions: u32,
+}
+
+fn default_delete_hours() -> u64 {
+    6
+}
+
+fn default_keep_executions() -> u32 {
+    1
+}
+
+impl Default for SystemPruneInput {
+    fn default() -> Self {
+        Self {
+            run_id: uuid::Uuid::new_v4().to_string(),
+            iteration: 1,
+            delete_terminal_older_than_hours: default_delete_hours(),
+            keep_executions: default_keep_executions(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Default)]
+pub struct SystemPruneOutput {
+    /// Current iteration number
+    pub iteration: u64,
+    /// Number of terminal instances deleted
+    pub instances_deleted: u64,
+    /// Number of executions pruned
+    pub executions_pruned: u64,
+    /// Number of instances that had executions pruned
+    pub instances_pruned: u64,
+    /// Detailed log of what was pruned/deleted
+    pub prune_log: Vec<PruneLogEntry>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct PruneLogEntry {
+    /// Timestamp of the operation
+    pub timestamp: String,
+    /// Type of operation: "delete" or "prune"
+    pub operation: String,
+    /// Instance ID affected
+    pub instance_id: String,
+    /// Orchestration name
+    pub orchestration_name: String,
+    /// Status before operation
+    pub status: String,
+    /// Additional details
+    pub details: String,
+}
+

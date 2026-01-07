@@ -279,17 +279,28 @@ pub async fn auth_middleware(
     next: Next,
 ) -> Response {
     let path = req.uri().path();
-    
+
     // Public routes that don't require auth
     if path == "/login" || path == "/health" || path.starts_with("/static/") {
         return next.run(req).await;
     }
-    
+
+    // Allow internal server API calls from localhost (for system activities)
+    // Check for X-Internal-Call header or localhost origin
+    let is_internal = req.headers()
+        .get("X-Internal-Call")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    if is_internal && path.starts_with("/api/server/") {
+        return next.run(req).await;
+    }
+
     // Check authentication via session cookie
     if is_authenticated(&cookies) {
         return next.run(req).await;
     }
-    
+
     // For API requests, return 401
     if path.starts_with("/api/") {
         return (
@@ -297,7 +308,7 @@ pub async fn auth_middleware(
             Json(serde_json::json!({"error": "Authentication required. Please login at /login"})),
         ).into_response();
     }
-    
+
     // For browser requests, redirect to login
     Redirect::to("/login").into_response()
 }

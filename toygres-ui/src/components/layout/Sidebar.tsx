@@ -1,14 +1,15 @@
 import { NavLink } from 'react-router-dom';
-import { 
-  Database, 
-  LayoutDashboard, 
-  Settings, 
+import {
+  Database,
+  LayoutDashboard,
+  Settings,
   Bug,
   BarChart3,
   FileText,
   Users,
   GitBranch,
-  FileCode
+  FileCode,
+  Scissors
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -48,6 +49,7 @@ const navigation: NavItem[] = [
     children: [
       { title: 'Orchestrations', href: '/debug/orchestrations', icon: GitBranch },
       { title: 'Logs', href: '/debug/logs', icon: FileText },
+      { title: 'Prune Log', href: '/debug/prune-log', icon: Scissors },
     ],
   },
 ];

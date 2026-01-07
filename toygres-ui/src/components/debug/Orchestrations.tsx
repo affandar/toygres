@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { X, ChevronDown, ChevronRight, ChevronLeft, StopCircle, RefreshCw, AlertTriangle, TableIcon, GitBranch } from 'lucide-react';
+import { X, ChevronDown, ChevronRight, ChevronLeft, StopCircle, RefreshCw, AlertTriangle, TableIcon, GitBranch, Trash2, Scissors, Network } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/lib/toast';
@@ -26,9 +26,14 @@ export function Orchestrations() {
   const [showCancelModal, setShowCancelModal] = useState(false);
   const [showRecreateModal, setShowRecreateModal] = useState(false);
   const [showRaiseEventModal, setShowRaiseEventModal] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [showPruneModal, setShowPruneModal] = useState(false);
+  const [showTreeModal, setShowTreeModal] = useState(false);
+  const [deleteForce, setDeleteForce] = useState(false);
+  const [pruneKeepExecutions, setPruneKeepExecutions] = useState(1);
   const [eventName, setEventName] = useState('InstanceDeleted');
   const [eventData, setEventData] = useState('{}');
-  const [historyLimit, setHistoryLimit] = useState<'full' | '5' | '10'>('5');
+  const [historyLimit, setHistoryLimit] = useState<'full' | '5' | '10'>('full');
   const [historyView, setHistoryView] = useState<'table' | 'graph'>('table');
   const [showActiveOnly, setShowActiveOnly] = useState(false);
   const [bulkActionType, setBulkActionType] = useState<'cancel' | 'recreate' | null>(null);
@@ -142,6 +147,44 @@ export function Orchestrations() {
     },
     onError: (error: Error) => {
       showToast('error', `Failed to raise event: ${error.message}`);
+    },
+  });
+
+  // Tree query
+  const { data: orchTree } = useQuery({
+    queryKey: ['orchestration-tree', selectedOrch],
+    queryFn: () => api.getOrchestrationTree(selectedOrch!),
+    enabled: !!selectedOrch && showTreeModal,
+  });
+
+  // Delete mutation
+  const deleteMutation = useMutation({
+    mutationFn: ({ id, force }: { id: string; force: boolean }) =>
+      api.deleteOrchestrationInstance(id, force),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['orchestrations'] });
+      showToast('success', `Orchestration ${data.instance_id} deleted`);
+      setShowDeleteModal(false);
+      setDeleteForce(false);
+      clearSelection();
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to delete: ${error.message}`);
+    },
+  });
+
+  // Prune mutation
+  const pruneMutation = useMutation({
+    mutationFn: ({ id, keepExecutions }: { id: string; keepExecutions: number }) =>
+      api.pruneOrchestration(id, keepExecutions),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['orchestration', selectedOrch, historyLimit] });
+      queryClient.invalidateQueries({ queryKey: ['orchestrations'] });
+      showToast('success', `Pruned ${data.pruned} executions from ${data.instance_id}`);
+      setShowPruneModal(false);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to prune: ${error.message}`);
     },
   });
 
@@ -640,6 +683,7 @@ export function Orchestrations() {
                 </th>
                 <th className="pb-3 font-medium">ID</th>
                 <th className="pb-3 font-medium">Type</th>
+                <th className="pb-3 font-medium">Version</th>
                 <th className="pb-3 font-medium">Status</th>
                 <th className="pb-3 font-medium">Exec</th>
                 <th className="pb-3 font-medium">Started</th>
@@ -670,6 +714,7 @@ export function Orchestrations() {
                     </td>
                     <td className="py-3 font-mono text-xs">{orch.instance_id}</td>
                     <td className="py-3 text-sm">{shortType}</td>
+                    <td className="py-3 text-sm text-muted-foreground">{orch.orchestration_version}</td>
                     <td className="py-3 text-sm">
                       {getStatusIcon(orch.status)} {orch.status}
                     </td>
@@ -923,6 +968,35 @@ export function Orchestrations() {
                       🔔 Raise Event
                     </Button>
                   )}
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => setShowTreeModal(true)}
+                    title="View instance tree"
+                  >
+                    <Network className="h-4 w-4 mr-1" />
+                    Tree
+                  </Button>
+                  {orchDetail.current_execution_id > 1 && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setShowPruneModal(true)}
+                      title="Prune old executions"
+                    >
+                      <Scissors className="h-4 w-4 mr-1" />
+                      Prune
+                    </Button>
+                  )}
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onClick={() => setShowDeleteModal(true)}
+                    title="Delete orchestration instance"
+                  >
+                    <Trash2 className="h-4 w-4 mr-1" />
+                    Delete
+                  </Button>
                   <Button
                     size="sm"
                     variant="ghost"
@@ -1352,6 +1426,242 @@ export function Orchestrations() {
           </div>
         )}
         </>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && selectedOrch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Trash2 className="h-5 w-5 text-destructive" />
+                <span>Delete Orchestration</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">
+                Are you sure you want to delete <strong>{selectedOrch}</strong>?
+              </p>
+              <div className="bg-muted/50 border rounded-md p-3 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Instance ID:</span>
+                  <code className="text-xs">{selectedOrch}</code>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Status:</span>
+                  <span className="text-xs">{orchDetail?.status}</span>
+                </div>
+              </div>
+              {orchDetail?.status === 'Running' && (
+                <div className="flex items-center gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md">
+                  <input
+                    type="checkbox"
+                    id="force-delete"
+                    checked={deleteForce}
+                    onChange={(e) => setDeleteForce(e.target.checked)}
+                    className="rounded border-amber-400"
+                  />
+                  <label htmlFor="force-delete" className="text-sm text-amber-800 dark:text-amber-200">
+                    Force delete (instance is still running)
+                  </label>
+                </div>
+              )}
+              <div className="bg-destructive/10 border border-destructive/20 rounded-md p-3">
+                <p className="text-sm text-destructive font-medium">Warning:</p>
+                <ul className="text-sm text-destructive/80 mt-2 space-y-1 list-disc list-inside">
+                  <li>All execution history will be permanently deleted</li>
+                  <li>Child orchestrations will also be deleted</li>
+                  <li>This action cannot be undone</li>
+                </ul>
+              </div>
+              <div className="flex justify-end space-x-3 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => { setShowDeleteModal(false); setDeleteForce(false); }}
+                  disabled={deleteMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="destructive"
+                  onClick={() => deleteMutation.mutate({ id: selectedOrch, force: deleteForce })}
+                  disabled={deleteMutation.isPending || (orchDetail?.status === 'Running' && !deleteForce)}
+                >
+                  {deleteMutation.isPending ? 'Deleting...' : 'Delete'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Prune Confirmation Modal */}
+      {showPruneModal && selectedOrch && orchDetail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-md mx-4">
+            <CardHeader>
+              <CardTitle className="flex items-center space-x-2">
+                <Scissors className="h-5 w-5 text-primary" />
+                <span>Prune Executions</span>
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <p className="text-sm">
+                Remove old executions from <strong>{selectedOrch}</strong>?
+              </p>
+              <div className="bg-muted/50 border rounded-md p-3 space-y-2">
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Current Execution:</span>
+                  <span className="text-xs">#{orchDetail.current_execution_id}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Status:</span>
+                  <span className="text-xs">{orchDetail.status}</span>
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2">
+                  Keep last N executions:
+                </label>
+                <select
+                  value={pruneKeepExecutions}
+                  onChange={(e) => setPruneKeepExecutions(parseInt(e.target.value))}
+                  className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                >
+                  <option value={1}>Keep only current (prune all history)</option>
+                  <option value={2}>Keep last 2</option>
+                  <option value={5}>Keep last 5</option>
+                  <option value={10}>Keep last 10</option>
+                </select>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                The current execution is always protected and will never be pruned.
+                This is useful for long-running orchestrations that use continue-as-new.
+              </p>
+              <div className="flex justify-end space-x-3 pt-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setShowPruneModal(false)}
+                  disabled={pruneMutation.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  onClick={() => pruneMutation.mutate({ id: selectedOrch, keepExecutions: pruneKeepExecutions })}
+                  disabled={pruneMutation.isPending}
+                >
+                  {pruneMutation.isPending ? 'Pruning...' : 'Prune'}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* Tree View Modal */}
+      {showTreeModal && selectedOrch && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <Card className="w-full max-w-lg mx-4">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center space-x-2">
+                  <Network className="h-5 w-5 text-primary" />
+                  <span>Instance Tree</span>
+                </CardTitle>
+                <button
+                  onClick={() => setShowTreeModal(false)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {orchTree ? (
+                <>
+                  <div className="bg-muted/50 border rounded-md p-3 space-y-2">
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Instance ID:</span>
+                      <code className="text-xs">{orchTree.instance_id}</code>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Type:</span>
+                      <span className="text-xs">{orchTree.orchestration_name.split('::').pop()}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Status:</span>
+                      <span className="text-xs">{getStatusIcon(orchTree.status)} {orchTree.status}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Executions:</span>
+                      <span className="text-xs">{orchTree.execution_count}</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Tree Size:</span>
+                      <span className="text-xs">{orchTree.tree_size} instance(s)</span>
+                    </div>
+                    <div className="flex justify-between text-sm">
+                      <span className="text-muted-foreground">Is Root:</span>
+                      <span className="text-xs">{orchTree.is_root ? 'Yes' : 'No'}</span>
+                    </div>
+                  </div>
+
+                  {orchTree.parent && (
+                    <div>
+                      <p className="text-sm font-medium mb-2">Parent Orchestration</p>
+                      <div className="border rounded-md p-3 bg-blue-50 dark:bg-blue-950/30">
+                        <div className="flex justify-between text-sm">
+                          <code className="text-xs">{orchTree.parent.instance_id}</code>
+                          <span className="text-xs">{getStatusIcon(orchTree.parent.status)} {orchTree.parent.status}</span>
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {orchTree.parent.orchestration_name.split('::').pop()}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {orchTree.children.length > 0 && (
+                    <div>
+                      <p className="text-sm font-medium mb-2">Child Orchestrations ({orchTree.children_count})</p>
+                      <div className="max-h-48 overflow-y-auto space-y-2">
+                        {orchTree.children.map((child) => (
+                          <div
+                            key={child.instance_id}
+                            className={`border rounded-md p-3 ${
+                              child.is_direct_child
+                                ? 'bg-green-50 dark:bg-green-950/30 border-green-200 dark:border-green-800'
+                                : 'bg-muted/50'
+                            }`}
+                          >
+                            <div className="flex justify-between text-sm">
+                              <code className="text-xs">{child.instance_id}</code>
+                              <span className="text-xs">{getStatusIcon(child.status)} {child.status}</span>
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-1">
+                              {child.orchestration_name.split('::').pop()}
+                              {child.is_direct_child && <span className="ml-2 text-green-600">(direct child)</span>}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {orchTree.children.length === 0 && !orchTree.parent && (
+                    <p className="text-sm text-muted-foreground text-center py-4">
+                      This is a standalone orchestration with no parent or children.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </div>
       )}
 
       {/* Bulk Cancel Modal - outside detail view conditional */}

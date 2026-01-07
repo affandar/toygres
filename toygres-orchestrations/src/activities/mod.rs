@@ -5,3 +5,5 @@ pub mod get_connection_strings;
 pub mod test_connection;
 pub mod set_password;
 pub mod cms;
+pub mod system_prune;
+pub mod system_prune_2;

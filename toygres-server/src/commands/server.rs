@@ -52,17 +52,23 @@ pub async fn handle_command(command: ServerCommand) -> Result<()> {
 pub async fn run_standalone_mode(port: u16, _workers: usize) -> Result<()> {
     tracing::info!("Starting Toygres in standalone mode (API + Workers)");
     tracing::info!("API port: {}", port);
-    
+
     // Initialize Duroxide
     let (runtime, store) = crate::duroxide::initialize().await?;
-    
+
     // Create API state
     let client = std::sync::Arc::new(duroxide::Client::new(store.clone()));
     let state = crate::api::AppState {
-        duroxide_client: client,
+        duroxide_client: client.clone(),
         store: store.clone(),
     };
-    
+
+    // Give runtime a moment to fully start before scheduling orchestrations
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+
+    // Auto-start system pruner (singleton orchestration)
+    start_system_pruner(&client).await;
+
     // Start API server
     tracing::info!("Starting API server on 0.0.0.0:{}", port);
     
@@ -374,6 +380,62 @@ fn read_pid(pid_file: &Path) -> Result<i32> {
     let contents = std::fs::read_to_string(pid_file)?;
     contents.trim().parse::<i32>()
         .map_err(|e| anyhow::anyhow!("Invalid PID file: {}", e))
+}
+
+/// Well-known instance ID for the system pruner singleton
+const SYSTEM_PRUNER_INSTANCE_ID: &str = "system-pruner";
+
+/// Start the system pruner orchestration (singleton)
+///
+/// This orchestration runs forever, pruning old terminal instances and executions.
+/// If it's already running, this is a no-op.
+async fn start_system_pruner(client: &std::sync::Arc<duroxide::Client>) {
+    use toygres_orchestrations::activity_types::SystemPruneInput;
+    use toygres_orchestrations::names::orchestrations::SYSTEM_PRUNER;
+
+    // Check if system pruner is already running
+    match client.get_orchestration_status(SYSTEM_PRUNER_INSTANCE_ID).await {
+        Ok(status) => {
+            if status == duroxide::OrchestrationStatus::Running {
+                tracing::info!("System pruner is already running");
+                return;
+            }
+            // If it was previously completed/failed, delete it first
+            tracing::info!("System pruner was {:?}, deleting and restarting", status);
+            if let Err(e) = client.delete_instance(SYSTEM_PRUNER_INSTANCE_ID, true).await {
+                tracing::warn!("Failed to delete old system pruner: {}", e);
+                // Continue anyway - start_orchestration might fail but that's ok
+            }
+        }
+        Err(_) => {
+            // Instance doesn't exist, start it
+            tracing::info!("Starting system pruner orchestration");
+        }
+    }
+
+    let input = SystemPruneInput {
+        run_id: uuid::Uuid::new_v4().to_string(),
+        iteration: 1,
+        delete_terminal_older_than_hours: 6,
+        keep_executions: 1,
+    };
+
+    match client.start_orchestration(
+        SYSTEM_PRUNER_INSTANCE_ID,
+        SYSTEM_PRUNER,
+        &serde_json::to_string(&input).unwrap(),
+    ).await {
+        Ok(_) => {
+            tracing::info!("✓ System pruner started (instance: {})", SYSTEM_PRUNER_INSTANCE_ID);
+            tracing::info!("  - Deletes terminal instances older than {} hours", input.delete_terminal_older_than_hours);
+            tracing::info!("  - Keeps only last {} execution(s)", input.keep_executions);
+            tracing::info!("  - Runs every 1 minute");
+        }
+        Err(e) => {
+            // Don't fail server startup if pruner fails to start
+            tracing::warn!("Failed to start system pruner: {}", e);
+        }
+    }
 }
 
 /// Ensure the API server is running, auto-start if needed

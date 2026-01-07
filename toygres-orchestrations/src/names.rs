@@ -27,14 +27,24 @@ pub mod orchestrations {
     pub const DELETE_INSTANCE: &str = "toygres-orchestrations::orchestration::delete-instance";
     
     /// Instance Actor - Continuous per-instance operations
-    /// 
-    /// **Input:** [`crate::types::InstanceActorInput`]  
-    /// **Output:** Never completes (continues-as-new forever)  
+    ///
+    /// **Input:** [`crate::types::InstanceActorInput`]
+    /// **Output:** Never completes (continues-as-new forever)
     /// **Activities used:**
     /// - Health monitoring every 30 seconds
     /// - Future: Auto-scaling, backups, maintenance
     /// **Duration:** Runs until instance deleted
     /// **Pattern:** Detached orchestration with continue-as-new
     pub const INSTANCE_ACTOR: &str = "toygres-orchestrations::orchestration::instance-actor";
+
+    /// System Pruner - Automatic maintenance orchestration
+    ///
+    /// **Input:** [`crate::activity_types::SystemPruneInput`]
+    /// **Output:** Never completes (continues-as-new forever)
+    /// **Activities used:**
+    /// - system-prune: Deletes old terminal instances, prunes executions
+    /// **Duration:** Runs forever (every 1 hour)
+    /// **Pattern:** Singleton orchestration with continue-as-new
+    pub const SYSTEM_PRUNER: &str = "toygres-orchestrations::orchestration::system-pruner";
 }
 

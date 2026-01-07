@@ -7,7 +7,7 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use duroxide::Client;
+use duroxide::{Client, EventKind};
 use duroxide_pg::PostgresProvider;
 use serde::Serialize;
 use std::sync::Arc;
@@ -54,9 +54,13 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
         .route("/api/server/orchestrations/:id/recreate", post(recreate_orchestration))
         .route("/api/server/orchestrations/:id/raise-event", post(raise_event_to_orchestration))
+        .route("/api/server/orchestrations/:id/delete", post(delete_orchestration_instance))
+        .route("/api/server/orchestrations/:id/prune", post(prune_orchestration))
+        .route("/api/server/orchestrations/:id/tree", get(get_orchestration_tree))
         .route("/api/server/orchestration-flows", get(list_orchestration_flows))
         .route("/api/server/orchestration-flows/:name", get(get_orchestration_flow))
         .route("/api/server/logs", get(get_logs))
+        .route("/api/server/prune-log", get(get_prune_log))
         // Auth middleware
         .layer(middleware::from_fn(auth::auth_middleware))
         // Cookie management
@@ -855,6 +859,7 @@ struct InstanceLogsQuery {
     #[serde(default = "default_instance_log_lines")]
     tail_lines: i64,
     #[serde(default)]
+    #[allow(dead_code)] // Reserved for future streaming logs implementation
     follow: bool,
 }
 
@@ -1539,6 +1544,235 @@ async fn recreate_orchestration(
 }
 
 // ============================================================================
+// Orchestration Instance Management (Delete, Prune, Tree)
+// ============================================================================
+
+#[derive(Debug, serde::Deserialize)]
+struct DeleteOrchestrationQuery {
+    #[serde(default)]
+    force: bool,
+}
+
+async fn delete_orchestration_instance(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Query(params): Query<DeleteOrchestrationQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !state.duroxide_client.has_management_capability() {
+        return Err(AppError::Internal("Management features not available".to_string()));
+    }
+
+    // Get instance info first for logging
+    let info = state.duroxide_client
+        .get_instance_info(&id)
+        .await
+        .map_err(|e| {
+            let error_msg = format!("{:?}", e);
+            if error_msg.contains("not found") || error_msg.contains("NotFound") {
+                AppError::NotFound(format!("Orchestration '{}' not found", id))
+            } else {
+                AppError::Internal(format!("Failed to get instance info: {}", e))
+            }
+        })?;
+
+    // Check if running and force is not set
+    if info.status == "Running" && !params.force {
+        return Err(AppError::BadRequest(
+            "Cannot delete running orchestration. Use force=true to force delete.".to_string()
+        ));
+    }
+
+    // Delete the instance
+    state.duroxide_client
+        .delete_instance(&id, params.force)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to delete instance: {}", e)))?;
+
+    tracing::info!(
+        instance_id = %id,
+        orchestration_name = %info.orchestration_name,
+        status = %info.status,
+        force = params.force,
+        "Deleted orchestration instance"
+    );
+
+    Ok(Json(serde_json::json!({
+        "instance_id": id,
+        "orchestration_name": info.orchestration_name,
+        "status": info.status,
+        "deleted": true,
+        "force": params.force,
+    })))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PruneOrchestrationRequest {
+    /// Keep only the last N executions (default: 1, meaning keep only current)
+    #[serde(default = "default_keep_executions")]
+    keep_executions: u32,
+}
+
+fn default_keep_executions() -> u32 {
+    1
+}
+
+async fn prune_orchestration(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+    Json(req): Json<PruneOrchestrationRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !state.duroxide_client.has_management_capability() {
+        return Err(AppError::Internal("Management features not available".to_string()));
+    }
+
+    // Get current execution count before pruning
+    let executions_before = state.duroxide_client
+        .list_executions(&id)
+        .await
+        .map_err(|e| {
+            let error_msg = format!("{:?}", e);
+            if error_msg.contains("not found") || error_msg.contains("NotFound") {
+                AppError::NotFound(format!("Orchestration '{}' not found", id))
+            } else {
+                AppError::Internal(format!("Failed to list executions: {}", e))
+            }
+        })?;
+
+    let count_before = executions_before.len();
+
+    // Prune executions
+    // keep_last: None means prune all except current execution
+    // keep_last: Some(N) keeps the top N executions
+    let prune_options = duroxide::PruneOptions {
+        keep_last: if req.keep_executions == 0 {
+            None
+        } else {
+            Some(req.keep_executions)
+        },
+        completed_before: None,
+    };
+
+    state.duroxide_client
+        .prune_executions(&id, prune_options)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to prune executions: {}", e)))?;
+
+    // Get execution count after pruning
+    let executions_after = state.duroxide_client
+        .list_executions(&id)
+        .await
+        .unwrap_or_default();
+
+    let count_after = executions_after.len();
+    let pruned_count = count_before.saturating_sub(count_after);
+
+    tracing::info!(
+        instance_id = %id,
+        executions_before = count_before,
+        executions_after = count_after,
+        pruned = pruned_count,
+        keep_executions = req.keep_executions,
+        "Pruned orchestration executions"
+    );
+
+    Ok(Json(serde_json::json!({
+        "instance_id": id,
+        "executions_before": count_before,
+        "executions_after": count_after,
+        "pruned": pruned_count,
+        "keep_executions": req.keep_executions,
+    })))
+}
+
+async fn get_orchestration_tree(
+    State(state): State<AppState>,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !state.duroxide_client.has_management_capability() {
+        return Err(AppError::Internal("Management features not available".to_string()));
+    }
+
+    // Get instance info
+    let info = state.duroxide_client
+        .get_instance_info(&id)
+        .await
+        .map_err(|e| {
+            let error_msg = format!("{:?}", e);
+            if error_msg.contains("not found") || error_msg.contains("NotFound") {
+                AppError::NotFound(format!("Orchestration '{}' not found", id))
+            } else {
+                AppError::Internal(format!("Failed to get instance info: {}", e))
+            }
+        })?;
+
+    // Get the instance tree (includes all descendants)
+    let tree = state.duroxide_client
+        .get_instance_tree(&id)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get instance tree: {}", e)))?;
+
+    // Get parent info if this instance has a parent
+    let parent_info = if let Some(ref parent_id) = info.parent_instance_id {
+        state.duroxide_client
+            .get_instance_info(parent_id)
+            .await
+            .ok()
+            .map(|p| serde_json::json!({
+                "instance_id": p.instance_id,
+                "orchestration_name": p.orchestration_name,
+                "status": p.status,
+            }))
+    } else {
+        None
+    };
+
+    // Get info for all descendants (excluding self)
+    let mut children = Vec::new();
+    for child_id in &tree.all_ids {
+        if child_id == &id {
+            continue; // Skip self
+        }
+        if let Ok(child_info) = state.duroxide_client.get_instance_info(child_id).await {
+            let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(child_info.created_at as i64)
+                .map(|dt| dt.to_rfc3339())
+                .unwrap_or_else(|| "unknown".to_string());
+
+            children.push(serde_json::json!({
+                "instance_id": child_info.instance_id,
+                "orchestration_name": child_info.orchestration_name,
+                "status": child_info.status,
+                "created_at": created_at,
+                "is_direct_child": child_info.parent_instance_id.as_ref() == Some(&id),
+            }));
+        }
+    }
+
+    // Get execution count for context
+    let execution_count = state.duroxide_client
+        .list_executions(&id)
+        .await
+        .map(|e| e.len())
+        .unwrap_or(0);
+
+    let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(info.created_at as i64)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(Json(serde_json::json!({
+        "instance_id": info.instance_id,
+        "orchestration_name": info.orchestration_name,
+        "status": info.status,
+        "created_at": created_at,
+        "execution_count": execution_count,
+        "parent": parent_info,
+        "children": children,
+        "children_count": children.len(),
+        "tree_size": tree.all_ids.len(),
+        "is_root": tree.root_id == id,
+    })))
+}
+
+// ============================================================================
 // Orchestration Flows (Static Diagrams)
 // ============================================================================
 
@@ -1690,6 +1924,99 @@ async fn get_logs_from_kubernetes(query: LogsQuery) -> Result<Json<Vec<String>>,
     }
     
     Ok(Json(lines))
+}
+
+// ============================================================================
+// System Pruner Log
+// ============================================================================
+
+/// Get the prune log from the system pruner orchestration
+///
+/// Returns the last prune activity results, showing what instances were deleted
+/// and what executions were pruned.
+async fn get_prune_log(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    const SYSTEM_PRUNER_ID: &str = "system-pruner";
+
+    // Check if system pruner exists
+    let info = state.duroxide_client
+        .get_instance_info(SYSTEM_PRUNER_ID)
+        .await
+        .map_err(|_| AppError::NotFound("System pruner not running".to_string()))?;
+
+    // Get all execution history to find the latest prune logs
+    let execution_ids = state.duroxide_client
+        .list_executions(SYSTEM_PRUNER_ID)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to list executions: {}", e)))?;
+
+    let mut prune_logs: Vec<serde_json::Value> = Vec::new();
+    let mut last_run: Option<String> = None;
+    let mut iteration: u64 = 0;
+
+    // Get events from the most recent execution(s) to find prune activity results
+    // Process from newest to oldest, but only look at the last 10 executions
+    for exec_id in execution_ids.iter().rev().take(10) {
+        if let Ok(events) = state.duroxide_client.read_execution_history(SYSTEM_PRUNER_ID, *exec_id).await {
+            for event in events {
+                // Extract last run time from orchestration start event
+                if matches!(event.kind, EventKind::OrchestrationStarted { .. }) {
+                    let dt = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(event.timestamp_ms as i64)
+                        .map(|dt| dt.to_rfc3339());
+                    if last_run.is_none() {
+                        last_run = dt;
+                    }
+                }
+
+                // Extract prune logs from activity completion events
+                if let EventKind::ActivityCompleted { result } = &event.kind {
+                    // The result is a JSON string containing SystemPruneOutput
+                    if let Ok(output) = serde_json::from_str::<serde_json::Value>(result) {
+                        // Extract iteration number
+                        if let Some(iter) = output.get("iteration").and_then(|v| v.as_u64()) {
+                            if iter > iteration {
+                                iteration = iter;
+                            }
+                        }
+
+                        // Extract prune_log array
+                        if let Some(logs) = output.get("prune_log").and_then(|v| v.as_array()) {
+                            for log in logs {
+                                prune_logs.push(log.clone());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Sort logs by timestamp (newest first)
+    prune_logs.sort_by(|a, b| {
+        let ts_a = a.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        let ts_b = b.get("timestamp").and_then(|v| v.as_str()).unwrap_or("");
+        ts_b.cmp(ts_a)
+    });
+
+    // Limit to last 50 entries
+    prune_logs.truncate(50);
+
+    let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(info.created_at as i64)
+        .map(|dt| dt.to_rfc3339())
+        .unwrap_or_else(|| "unknown".to_string());
+
+    Ok(Json(serde_json::json!({
+        "instance_id": SYSTEM_PRUNER_ID,
+        "status": info.status,
+        "orchestration_version": info.orchestration_version,
+        "current_execution_id": info.current_execution_id,
+        "created_at": created_at,
+        "last_run": last_run,
+        "iteration": iteration,
+        "prune_log": prune_logs,
+        "total_entries": prune_logs.len(),
+    })))
 }
 
 // ============================================================================

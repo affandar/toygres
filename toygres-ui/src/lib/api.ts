@@ -273,6 +273,55 @@ export const api = {
     });
   },
 
+  async deleteOrchestrationInstance(id: string, force: boolean = false): Promise<{
+    instance_id: string;
+    orchestration_name: string;
+    status: string;
+    deleted: boolean;
+    force: boolean;
+  }> {
+    const params = new URLSearchParams();
+    if (force) params.append('force', 'true');
+    const query = params.toString() ? `?${params.toString()}` : '';
+    return fetchJson(`${API_BASE}/api/server/orchestrations/${id}/delete${query}`, {
+      method: 'POST',
+    });
+  },
+
+  async pruneOrchestration(id: string, keepExecutions: number = 1): Promise<{
+    instance_id: string;
+    executions_before: number;
+    executions_after: number;
+    pruned: number;
+    keep_executions: number;
+  }> {
+    return fetchJson(`${API_BASE}/api/server/orchestrations/${id}/prune`, {
+      method: 'POST',
+      body: JSON.stringify({ keep_executions: keepExecutions }),
+    });
+  },
+
+  async getOrchestrationTree(id: string): Promise<{
+    instance_id: string;
+    orchestration_name: string;
+    status: string;
+    created_at: string;
+    execution_count: number;
+    parent: { instance_id: string; orchestration_name: string; status: string } | null;
+    children: Array<{
+      instance_id: string;
+      orchestration_name: string;
+      status: string;
+      created_at: string;
+      is_direct_child: boolean;
+    }>;
+    children_count: number;
+    tree_size: number;
+    is_root: boolean;
+  }> {
+    return fetchJson(`${API_BASE}/api/server/orchestrations/${id}/tree`);
+  },
+
   // Orchestration Flows (Static Diagrams)
   async listOrchestrationFlows(): Promise<Array<{
     orchestration_name: string;
@@ -297,6 +346,28 @@ export const api = {
     if (filter) params.append('filter', filter);
     const query = params.toString() ? `?${params.toString()}` : '';
     return fetchJson<string[]>(`${API_BASE}/api/server/logs${query}`);
+  },
+
+  // System Pruner
+  async getPruneLog(): Promise<{
+    instance_id: string;
+    orchestration_version: string;
+    status: string;
+    current_execution_id: number;
+    created_at: string;
+    last_run: string | null;
+    iteration: number;
+    prune_log: Array<{
+      timestamp: string;
+      operation: string;
+      instance_id: string;
+      orchestration_name: string;
+      status: string;
+      details: string;
+    }>;
+    total_entries: number;
+  }> {
+    return fetchJson(`${API_BASE}/api/server/prune-log`);
   },
 };
 

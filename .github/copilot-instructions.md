@@ -161,11 +161,56 @@ PGPASSWORD=<password> psql "postgresql://postgres@<ip>:5432/postgres?gssencmode=
 3. Register in `registry.rs`
 4. Add to `orchestrations/mod.rs`
 
+## Duroxide Orchestration Versioning
+
+**Registering Versioned Orchestrations**:
+```rust
+// Default version (1.0.0) - use register_typed
+.register_typed(orchestrations::MY_ORCH, my_orchestration)
+
+// Explicit versions - use register_versioned_typed
+.register_versioned_typed(orchestrations::MY_ORCH, "1.0.1", my_orchestration_1_0_1)
+.register_versioned_typed(orchestrations::MY_ORCH, "1.0.2", my_orchestration_1_0_2)
+```
+
+**Version Upgrade Behavior**:
+- Default policy is **"Latest"** - `continue_as_new` automatically upgrades to newest registered version
+- Version upgrade happens **at `continue_as_new` time**, not when server restarts
+- If old version has a timer running, it must complete before upgrade occurs
+- Example: v1.0.1 with 2-min timer must wait for timer to expire before upgrading to v1.0.2
+
+**Version Upgrade Timing** (why UI shows old version for a while):
+```
+T+0:00  Server restarts with v1.0.2 registered
+        But v1.0.1 was mid-cycle with ~1 min left on its timer
+T+1:00  v1.0.1's timer expires, does its work
+T+1:01  v1.0.1 calls continue_as_new() → Duroxide resolves "Latest" → v1.0.2
+        Database updated: orchestration_version = "1.0.2"
+T+1:02  UI refreshes, now shows v1.0.2
+```
+
+**Best Practices for Versioned Orchestrations**:
+1. Keep the same orchestration NAME constant across versions
+2. Create separate functions per version: `my_orch()`, `my_orch_1_0_1()`, `my_orch_1_0_2()`
+3. Add version prefix to trace logs for debugging: `ctx.trace_info("[v1.0.2] Starting...")`
+4. Version info flows: Duroxide `InstanceInfo.orchestration_version` → Backend API → UI
+
 ## Environment Variables
 
 Required in `.env`:
 - `DATABASE_URL` - PostgreSQL connection for CMS + Duroxide state
 - `AKS_CLUSTER_NAME`, `AKS_RESOURCE_GROUP` - Azure/K8s configuration
+
+## Duroxide RuntimeOptions Tuning
+
+Key settings in `toygres-server/src/main.rs` `RuntimeOptions`:
+- `dispatcher_min_poll_interval`: 1 second (default 100ms is too aggressive for production)
+- `orchestrator_lock_timeout`: 30 seconds (default 5s too short, causes poison messages on slow DB)
+- `worker_lock_timeout`: 300 seconds (for long-running activities)
+- `orchestration_concurrency`: 10
+- `worker_concurrency`: 10
+
+**Poison Message Prevention**: If lock timeout is too short and DB is slow, orchestrations can't complete their turn before the lock expires, causing infinite retry loops. Increase `orchestrator_lock_timeout` if you see repeated failures.
 
 ## Key Files
 

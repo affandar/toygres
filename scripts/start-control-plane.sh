@@ -160,17 +160,40 @@ echo ""
 echo -e "${BLUE}🚀 Starting Toygres server...${NC}"
 ./toygres server start
 
-# Wait for backend to be ready
-echo "   Waiting for backend to be ready..."
-for i in {1..30}; do
-    if curl -s http://localhost:8080/health > /dev/null 2>&1; then
-        echo -e "${GREEN}   ✓ Backend ready (http://localhost:8080)${NC}"
-        break
+# Clear any old log entries to ensure we detect the new startup
+STARTUP_TIME=$(date +%s)
+
+# Wait for Duroxide runtime to be ready (DB connections can be slow)
+# The HTTP server only starts after Duroxide is initialized
+echo "   Waiting for Duroxide runtime to initialize (this may take a while if DB is slow)..."
+for i in {1..90}; do
+    # Check if server process is still running
+    if [[ -f ~/.toygres/server.pid ]]; then
+        SERVER_PID=$(cat ~/.toygres/server.pid)
+        if ! ps -p "$SERVER_PID" > /dev/null 2>&1; then
+            echo -e "${RED}   ❌ Server process died. Check logs:${NC}"
+            echo "      ./toygres server logs"
+            exit 1
+        fi
     fi
-    if [[ $i -eq 30 ]]; then
-        echo -e "${RED}   ❌ Backend failed to start. Check logs:${NC}"
+    
+    # Check for the Duroxide runtime ready message in the log
+    if grep -q "✓ Duroxide runtime ready" ~/.toygres/server.log 2>/dev/null; then
+        # Also verify the HTTP server is responding
+        if curl -s http://localhost:8080/health > /dev/null 2>&1; then
+            echo -e "${GREEN}   ✓ Backend ready (http://localhost:8080)${NC}"
+            break
+        fi
+    fi
+    
+    if [[ $i -eq 90 ]]; then
+        echo -e "${RED}   ❌ Backend failed to start within 90 seconds. Check logs:${NC}"
         echo "      ./toygres server logs"
         exit 1
+    fi
+    # Show progress every 10 seconds
+    if [[ $((i % 10)) -eq 0 ]]; then
+        echo "      Still waiting... (${i}s)"
     fi
     sleep 1
 done

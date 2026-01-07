@@ -34,12 +34,23 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
     // Create activity and orchestration registries
     let activities = Arc::new(create_activity_registry());
     let orchestrations = create_orchestration_registry();
+
+    // Log all registered orchestrations
+    let orch_names = orchestrations.list_names();
+    tracing::info!("Registered {} orchestrations:", orch_names.len());
+    for name in &orch_names {
+        let versions = orchestrations.list_versions(name);
+        tracing::info!("  - {} (versions: {:?})", name, versions);
+    }
     
     // Configure runtime options
     let mut runtime_options = RuntimeOptions::default();
+    runtime_options.dispatcher_min_poll_interval = std::time::Duration::from_secs(1); // 1 second polling (default: 100ms)
     runtime_options.orchestration_concurrency = 10;  // 10 orchestration workers (default: 2)
     runtime_options.worker_concurrency = 10;         // 10 activity workers (default: 2)
-    runtime_options.worker_lock_timeout = std::time::Duration::from_secs(300); // 5 minutes
+    runtime_options.worker_lock_timeout = std::time::Duration::from_secs(300); // 5 minutes for activities
+    runtime_options.orchestrator_lock_timeout = std::time::Duration::from_secs(30); // 30 seconds for orchestrations (default: 5s)
+    runtime_options.orchestrator_lock_renewal_buffer = std::time::Duration::from_secs(5); // Renew 5s before expiry
     
     // Configure observability (metrics and structured logging)
     let observability_enabled = std::env::var("DUROXIDE_OBSERVABILITY_ENABLED")

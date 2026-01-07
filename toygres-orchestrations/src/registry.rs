@@ -28,6 +28,34 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             orchestrations::INSTANCE_ACTOR,
             crate::orchestrations::instance_actor::instance_actor_orchestration,
         )
+        .register_typed(
+            orchestrations::SYSTEM_PRUNER,
+            crate::orchestrations::system_pruner::system_pruner_orchestration,
+        )
+        // Register v1.0.1 of system pruner (2 min timer, keep 2 executions)
+        .register_versioned_typed(
+            orchestrations::SYSTEM_PRUNER,
+            "1.0.1",
+            crate::orchestrations::system_pruner::system_pruner_1_0_1,
+        )
+        // Register v1.0.2 of system pruner (5 min timer, keep 2 executions)
+        .register_versioned_typed(
+            orchestrations::SYSTEM_PRUNER,
+            "1.0.2",
+            crate::orchestrations::system_pruner::system_pruner_1_0_2,
+        )
+        // Register v1.0.3 of system pruner (uses system-prune-2, keep 3 executions)
+        .register_versioned_typed(
+            orchestrations::SYSTEM_PRUNER,
+            "1.0.3",
+            crate::orchestrations::system_pruner::system_pruner_1_0_3,
+        )
+        // Register v1.0.4 of system pruner (1 min timer, uses system-prune-2, keep 3 executions)
+        .register_versioned_typed(
+            orchestrations::SYSTEM_PRUNER,
+            "1.0.4",
+            crate::orchestrations::system_pruner::system_pruner_1_0_4,
+        )
         .build()
 }
 
@@ -104,6 +132,15 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::cms::delete_instance_record::NAME,
             activities::cms::delete_instance_record::activity,
         )
+        // System activities
+        .register_typed(
+            activities::system_prune::NAME,
+            activities::system_prune::activity,
+        )
+        .register_typed(
+            activities::system_prune_2::NAME,
+            activities::system_prune_2::activity,
+        )
         .build()
 }
 
@@ -113,8 +150,12 @@ mod tests {
     
     #[test]
     fn test_orchestration_registry_can_be_created() {
-        let _registry = create_orchestration_registry();
-        // Registry creation should not panic
+        let registry = create_orchestration_registry();
+        // Verify system pruner is registered
+        assert!(
+            registry.resolve_handler(crate::names::orchestrations::SYSTEM_PRUNER).is_some(),
+            "SYSTEM_PRUNER should be registered in the orchestration registry"
+        );
     }
     
     #[test]

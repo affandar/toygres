@@ -17,6 +17,7 @@ import { Workers } from '@/components/system/Workers';
 import { Environment } from '@/components/system/Environment';
 import { Orchestrations } from '@/components/debug/Orchestrations';
 import { Logs } from '@/components/debug/Logs';
+import { PruneLog } from '@/components/debug/PruneLog';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -78,6 +79,7 @@ function AppRoutes() {
         <Route path="debug">
           <Route path="orchestrations" element={<Orchestrations />} />
           <Route path="logs" element={<Logs />} />
+          <Route path="prune-log" element={<PruneLog />} />
         </Route>
       </Route>
     </Routes>
