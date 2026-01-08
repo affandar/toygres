@@ -16,7 +16,7 @@ pub async fn activity(
     let result = sqlx::query(
         r#"
         UPDATE toygres_cms.instances
-        SET health_status = $2::health_status, updated_at = NOW()
+        SET health_status = $2::toygres_cms.health_status, updated_at = NOW(), last_health_check = NOW()
         WHERE k8s_name = $1
           AND state = 'running'
         "#

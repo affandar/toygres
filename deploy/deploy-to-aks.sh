@@ -212,9 +212,9 @@ if [ "$ENABLE_HTTPS" = true ]; then
     helm repo add jetstack https://charts.jetstack.io 2>/dev/null || true
     helm repo update
     
-    # Set DNS label (use provided or default)
+    # Set DNS label (use provided or default to 'toygres-app')
     if [ -z "$TOYGRES_DNS_LABEL" ]; then
-        TOYGRES_DNS_LABEL="toygres-$(echo $RANDOM | md5sum | head -c 6)"
+        TOYGRES_DNS_LABEL="toygres-app"
     fi
     
     # Install nginx-ingress with DNS label
@@ -267,6 +267,16 @@ EOF
     echo "  Creating Ingress resource..."
     sed "s/\${TOYGRES_DNS_NAME}/$TOYGRES_DNS_NAME/g" "$SCRIPT_DIR/k8s/ingress.yaml" | kubectl apply -f -
     
+    # Update existing ingress if hostname doesn't match
+    CURRENT_HOST=$(kubectl get ingress toygres-ingress -n toygres-system -o jsonpath='{.spec.rules[0].host}' 2>/dev/null || echo "")
+    if [ -n "$CURRENT_HOST" ] && [ "$CURRENT_HOST" != "$TOYGRES_DNS_NAME" ]; then
+        echo "  Updating ingress hostname from $CURRENT_HOST to $TOYGRES_DNS_NAME..."
+        kubectl patch ingress toygres-ingress -n toygres-system --type='json' -p="[
+          {\"op\": \"replace\", \"path\": \"/spec/rules/0/host\", \"value\": \"$TOYGRES_DNS_NAME\"},
+          {\"op\": \"replace\", \"path\": \"/spec/tls/0/hosts/0\", \"value\": \"$TOYGRES_DNS_NAME\"}
+        ]"
+    fi
+    
     echo -e "${GREEN}✓ HTTPS setup complete${NC}"
     echo ""
     echo -e "${BLUE}🌐 Your application will be available at:${NC}"
@@ -274,6 +284,10 @@ EOF
     echo ""
     echo -e "${YELLOW}Note: SSL certificate may take 2-5 minutes to be issued.${NC}"
     echo "  Check status: kubectl get certificate -n toygres-system"
+    echo ""
+    echo -e "${YELLOW}If you can't access the site, flush your local DNS cache:${NC}"
+    echo "  macOS: sudo dscacheutil -flushcache && sudo killall -HUP mDNSResponder"
+    echo "  Linux: sudo systemd-resolve --flush-caches"
 else
     # Get external IP for HTTP-only setup
     echo -e "\n${BLUE}🌐 Getting external IP...${NC}"

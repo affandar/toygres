@@ -26,6 +26,7 @@ export interface InstanceDetail extends Instance {
   create_orchestration_id: string | null;
   delete_orchestration_id: string | null;
   instance_actor_orchestration_id: string | null;
+  last_health_check: string | null;
 }
 
 export interface Orchestration {
@@ -49,12 +50,16 @@ export interface HealthResponse {
   status: string;
   service: string;
   version: string;
+  cms_db_hostname?: string;
+  duroxide_db_hostname?: string;
 }
 
 export interface ServerStatus {
   serverRunning: boolean;
   apiHealthy: boolean;
   version?: string;
+  cmsDbHostname?: string;
+  duroxideDbHostname?: string;
 }
 
 export interface Stats {

@@ -45,6 +45,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances/:name/stop", post(stop_instance))
         .route("/api/instances/:name/start", post(start_instance))
         .route("/api/instances/:name/restart", post(restart_instance))
+        .route("/api/instances/:name/actor/start", post(start_instance_actor))
+        .route("/api/instances/:name/actor/restart", post(restart_instance_actor))
+        .route("/api/instances/:name/actor/cancel", post(cancel_instance_actor))
         .route("/api/instances/:name/logs", get(get_instance_logs))
         .route("/api/instances/:name/durable-orchestrations", get(get_pg_durable_orchestrations))
         .route("/api/instances/:name/durable-orchestrations/:instance_id/nodes", get(get_pg_durable_instance_nodes))
@@ -89,11 +92,34 @@ pub async fn start_server(port: u16, state: AppState) -> Result<()> {
 // Health Check
 // ============================================================================
 
+/// Extract hostname from a PostgreSQL connection string
+/// Input: postgresql://user:password@host:port/db or postgresql://user:password@host/db
+/// Output: host
+fn extract_db_hostname(db_url: &str) -> String {
+    // Try to parse: postgresql://user:pass@host:port/db or postgresql://user:pass@host/db
+    if let Some(rest) = db_url.strip_prefix("postgresql://") {
+        if let Some(at_pos) = rest.find('@') {
+            let host_part = &rest[at_pos + 1..]; // everything after @
+            // Find the end of hostname (: for port or / for database)
+            let end_pos = host_part.find(':').or_else(|| host_part.find('/')).unwrap_or(host_part.len());
+            return host_part[..end_pos].to_string();
+        }
+    }
+    "unknown".to_string()
+}
+
 async fn health_check() -> impl IntoResponse {
+    // Get database URL and extract hostname
+    let db_url = std::env::var("DATABASE_URL").unwrap_or_else(|_| "not configured".to_string());
+    let db_hostname = extract_db_hostname(&db_url);
+    
+    // CMS and Duroxide use the same database server, just different schemas
     Json(serde_json::json!({
         "status": "healthy",
         "service": "toygres",
-        "version": env!("CARGO_PKG_VERSION")
+        "version": env!("CARGO_PKG_VERSION"),
+        "cms_db_hostname": db_hostname,
+        "duroxide_db_hostname": db_hostname
     }))
 }
 
@@ -232,7 +258,8 @@ async fn get_instance(
                 ip_connection_string, dns_connection_string, external_ip,
                 created_at::text, updated_at::text,
                 create_orchestration_id, instance_actor_orchestration_id,
-                COALESCE(image_type::text, 'stock') as image_type
+                COALESCE(image_type::text, 'stock') as image_type,
+                last_health_check::text
          FROM toygres_cms.instances
          WHERE dns_name = $1 AND state != 'deleted'
          LIMIT 1"
@@ -269,7 +296,8 @@ async fn get_instance(
                 "updated_at": row.get::<String, _>("updated_at"),
                 "create_orchestration_id": row.get::<Option<String>, _>("create_orchestration_id"),
                 "instance_actor_orchestration_id": row.get::<Option<String>, _>("instance_actor_orchestration_id"),
-                "image_type": row.get::<String, _>("image_type")
+                "image_type": row.get::<String, _>("image_type"),
+                "last_health_check": row.get::<Option<String>, _>("last_health_check")
             })))
         }
         None => Err(AppError::NotFound(format!("Instance '{}' not found", name)))
@@ -851,6 +879,234 @@ async fn restart_instance(
 }
 
 // ============================================================================
+// Instance Actor Control (Health Monitoring Orchestration)
+// ============================================================================
+
+/// Start the instance actor (health monitoring) orchestration for an instance
+async fn start_instance_actor(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    use toygres_orchestrations::types::InstanceActorInput;
+    
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+        "SELECT k8s_name, namespace, state::text, instance_actor_orchestration_id 
+         FROM toygres_cms.instances WHERE dns_name = $1 AND state NOT IN ('deleted', 'deleting') LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (k8s_name, namespace, _state, existing_actor_id) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    let actor_id = format!("actor-{}", k8s_name);
+    
+    // Check if actor already exists and is running
+    if let Some(existing_id) = &existing_actor_id {
+        if let Ok(info) = state.duroxide_client.get_instance_info(existing_id).await {
+            if info.status == "Running" {
+                return Err(AppError::BadRequest(format!(
+                    "Instance actor '{}' is already running. Use restart to restart it.", existing_id
+                )));
+            }
+        }
+    }
+    
+    let actor_input = InstanceActorInput {
+        k8s_name: k8s_name.clone(),
+        namespace: namespace.clone(),
+        orchestration_id: actor_id.clone(),
+    };
+    
+    // Start the actor orchestration
+    state.duroxide_client
+        .start_orchestration(
+            &actor_id,
+            toygres_orchestrations::names::orchestrations::INSTANCE_ACTOR,
+            &serde_json::to_string(&actor_input).unwrap(),
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to start instance actor: {}", e)))?;
+    
+    // Update CMS with new actor ID
+    sqlx::query(
+        "UPDATE toygres_cms.instances SET instance_actor_orchestration_id = $1, updated_at = NOW() 
+         WHERE k8s_name = $2"
+    )
+    .bind(&actor_id)
+    .bind(&k8s_name)
+    .execute(&pool)
+    .await
+    .context("Failed to update instance actor ID")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "k8s_name": k8s_name,
+        "actor_id": actor_id,
+        "status": "started",
+        "message": "Instance actor started successfully"
+    })))
+}
+
+/// Restart the instance actor - cancels existing one and starts a new one
+async fn restart_instance_actor(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    use toygres_orchestrations::types::InstanceActorInput;
+    
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, String, String, Option<String>)>(
+        "SELECT k8s_name, namespace, state::text, instance_actor_orchestration_id 
+         FROM toygres_cms.instances WHERE dns_name = $1 AND state NOT IN ('deleted', 'deleting') LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (k8s_name, namespace, _state, existing_actor_id) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    // Cancel existing actor if it exists
+    let mut cancelled_existing = false;
+    if let Some(existing_id) = &existing_actor_id {
+        if let Ok(info) = state.duroxide_client.get_instance_info(existing_id).await {
+            if info.status == "Running" {
+                // Cancel the existing actor gracefully
+                if state.duroxide_client.cancel_instance(existing_id, "Restarting actor").await.is_ok() {
+                    cancelled_existing = true;
+                }
+            }
+        }
+    }
+    
+    let actor_id = format!("actor-{}", k8s_name);
+    
+    let actor_input = InstanceActorInput {
+        k8s_name: k8s_name.clone(),
+        namespace: namespace.clone(),
+        orchestration_id: actor_id.clone(),
+    };
+    
+    // Start the actor orchestration
+    state.duroxide_client
+        .start_orchestration(
+            &actor_id,
+            toygres_orchestrations::names::orchestrations::INSTANCE_ACTOR,
+            &serde_json::to_string(&actor_input).unwrap(),
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to start instance actor: {}", e)))?;
+    
+    // Update CMS with new actor ID
+    sqlx::query(
+        "UPDATE toygres_cms.instances SET instance_actor_orchestration_id = $1, updated_at = NOW() 
+         WHERE k8s_name = $2"
+    )
+    .bind(&actor_id)
+    .bind(&k8s_name)
+    .execute(&pool)
+    .await
+    .context("Failed to update instance actor ID")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "k8s_name": k8s_name,
+        "actor_id": actor_id,
+        "cancelled_existing": cancelled_existing,
+        "status": "restarted",
+        "message": "Instance actor restarted successfully"
+    })))
+}
+
+/// Cancel/stop the instance actor orchestration
+async fn cancel_instance_actor(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use anyhow::Context;
+    use sqlx::postgres::PgPoolOptions;
+    
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    
+    let pool = PgPoolOptions::new()
+        .max_connections(5)
+        .connect(&db_url)
+        .await
+        .context("Failed to connect to database")
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let row = sqlx::query_as::<_, (String, Option<String>)>(
+        "SELECT k8s_name, instance_actor_orchestration_id 
+         FROM toygres_cms.instances WHERE dns_name = $1 AND state NOT IN ('deleted', 'deleting') LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .context("Failed to query instance")
+    .map_err(|e| AppError::Internal(e.to_string()))?;
+    
+    let (k8s_name, actor_id) = match row {
+        Some(row) => row,
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+    
+    let actor_id = match actor_id {
+        Some(id) => id,
+        None => return Err(AppError::BadRequest("Instance has no actor orchestration".to_string())),
+    };
+    
+    // Cancel the actor using duroxide's cancel_instance
+    state.duroxide_client
+        .cancel_instance(&actor_id, "Cancelled by user")
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to cancel instance actor: {}", e)))?;
+    
+    Ok(Json(serde_json::json!({
+        "instance_name": name,
+        "k8s_name": k8s_name,
+        "actor_id": actor_id,
+        "status": "cancelled",
+        "message": "Instance actor cancelled successfully"
+    })))
+}
+
+// ============================================================================
 // Instance Logs (PostgreSQL Pod Logs)
 // ============================================================================
 
@@ -1286,7 +1542,7 @@ async fn list_orchestrations(
     
     // Get info for each instance
     let mut orchestrations = Vec::new();
-    for instance_id in instance_ids.iter().take(50) {  // Limit to 50
+    for instance_id in instance_ids.iter() {
         if let Ok(info) = state.duroxide_client.get_instance_info(instance_id).await {
             // Convert timestamp (u64 millis) to RFC3339 string
             let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(info.created_at as i64)

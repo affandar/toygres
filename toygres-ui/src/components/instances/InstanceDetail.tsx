@@ -1,12 +1,29 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, Trash2, AlertTriangle, FileText, GitBranch, Play, Square, RotateCw } from 'lucide-react';
+import { ArrowLeft, Copy, Trash2, AlertTriangle, FileText, GitBranch, Play, Square, RotateCw, Activity, XCircle, RefreshCw } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/lib/toast';
 import { api } from '@/lib/api';
 import { copyToClipboard, getStateColor, getHealthColor, formatRelativeTime } from '@/lib/utils';
+
+// Check if health is stale (more than 5 minutes old)
+function isHealthStale(lastHealthCheck: string | null | undefined): boolean {
+  if (!lastHealthCheck) return true;
+  const checkTime = new Date(lastHealthCheck).getTime();
+  const now = Date.now();
+  const fiveMinutesMs = 5 * 60 * 1000;
+  return (now - checkTime) > fiveMinutesMs;
+}
+
+// Get effective health status (unknown if stale)
+function getEffectiveHealthStatus(healthStatus: string, lastHealthCheck: string | null | undefined): string {
+  if (isHealthStale(lastHealthCheck)) {
+    return 'unknown';
+  }
+  return healthStatus;
+}
 
 export function InstanceDetail() {
   const { name } = useParams<{ name: string }>();
@@ -68,6 +85,40 @@ export function InstanceDetail() {
     },
     onError: (error: Error) => {
       showToast('error', `Failed to restart instance: ${error.message}`);
+    },
+  });
+
+  // Actor (Health Monitoring) Control Mutations
+  const startActorMutation = useMutation({
+    mutationFn: (instanceName: string) => api.startInstanceActor(instanceName),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', name] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to start actor: ${error.message}`);
+    },
+  });
+
+  const restartActorMutation = useMutation({
+    mutationFn: (instanceName: string) => api.restartInstanceActor(instanceName),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', name] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to restart actor: ${error.message}`);
+    },
+  });
+
+  const cancelActorMutation = useMutation({
+    mutationFn: (instanceName: string) => api.cancelInstanceActor(instanceName),
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ['instance', name] });
+      showToast('success', data.message);
+    },
+    onError: (error: Error) => {
+      showToast('error', `Failed to cancel actor: ${error.message}`);
     },
   });
 
@@ -205,9 +256,16 @@ export function InstanceDetail() {
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-muted-foreground">Health</span>
-              <span className={`text-sm font-medium ${getHealthColor(instance.health_status)}`}>
-                {instance.health_status}
-              </span>
+              <div className="flex items-center gap-2">
+                <span className={`text-sm font-medium ${getHealthColor(getEffectiveHealthStatus(instance.health_status, instance.last_health_check))}`}>
+                  {getEffectiveHealthStatus(instance.health_status, instance.last_health_check)}
+                </span>
+                {isHealthStale(instance.last_health_check) && (
+                  <span className="text-xs text-yellow-500" title="Health check is stale (over 5 minutes old)">
+                    ⚠️
+                  </span>
+                )}
+              </div>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-muted-foreground">Version</span>
@@ -278,7 +336,7 @@ export function InstanceDetail() {
         </Card>
       </div>
 
-      {(instance.create_orchestration_id || instance.instance_actor_orchestration_id) && (
+      {(instance.create_orchestration_id || instance.instance_actor_orchestration_id || true) && (
         <Card>
           <CardHeader>
             <CardTitle>Related Orchestrations</CardTitle>
@@ -296,18 +354,85 @@ export function InstanceDetail() {
                 <span className="text-xs text-green-600">Completed</span>
               </div>
             )}
-            {instance.instance_actor_orchestration_id && (
-              <div 
-                className="flex items-center justify-between p-3 rounded-md hover:bg-accent cursor-pointer"
-                onClick={() => navigate(`/debug/orchestrations/${instance.instance_actor_orchestration_id}`)}
-              >
-                <div>
-                  <p className="text-sm font-medium">Instance Actor</p>
-                  <p className="text-xs text-muted-foreground">{instance.instance_actor_orchestration_id}</p>
+            
+            {/* Instance Actor Section */}
+            <div className="p-3 rounded-md border border-border/50">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Activity className="h-4 w-4 text-blue-500" />
+                  <div>
+                    <p className="text-sm font-medium">Instance Actor (Health Monitor)</p>
+                    {instance.instance_actor_orchestration_id ? (
+                      <p 
+                        className="text-xs text-muted-foreground cursor-pointer hover:underline"
+                        onClick={() => navigate(`/debug/orchestrations/${instance.instance_actor_orchestration_id}`)}
+                      >
+                        {instance.instance_actor_orchestration_id}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-yellow-500">No actor running</p>
+                    )}
+                  </div>
                 </div>
-                <span className="text-xs text-blue-600">Running</span>
+                <div className="flex items-center gap-2">
+                  {instance.instance_actor_orchestration_id ? (
+                    <>
+                      {isHealthStale(instance.last_health_check) ? (
+                        <span className="text-xs text-yellow-500">Stale</span>
+                      ) : (
+                        <span className="text-xs text-blue-600">Running</span>
+                      )}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          restartActorMutation.mutate(name!);
+                        }}
+                        disabled={restartActorMutation.isPending}
+                        title="Restart actor"
+                      >
+                        <RefreshCw className={`h-3 w-3 ${restartActorMutation.isPending ? 'animate-spin' : ''}`} />
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          cancelActorMutation.mutate(name!);
+                        }}
+                        disabled={cancelActorMutation.isPending}
+                        title="Cancel actor"
+                      >
+                        <XCircle className="h-3 w-3 text-red-500" />
+                      </Button>
+                    </>
+                  ) : (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        startActorMutation.mutate(name!);
+                      }}
+                      disabled={startActorMutation.isPending}
+                    >
+                      {startActorMutation.isPending ? (
+                        <RefreshCw className="h-3 w-3 animate-spin mr-1" />
+                      ) : (
+                        <Activity className="h-3 w-3 mr-1" />
+                      )}
+                      Start Actor
+                    </Button>
+                  )}
+                </div>
               </div>
-            )}
+              {instance.last_health_check && (
+                <p className="text-xs text-muted-foreground mt-2">
+                  Last check: {formatRelativeTime(instance.last_health_check)}
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}

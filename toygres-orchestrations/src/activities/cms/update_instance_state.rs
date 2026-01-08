@@ -45,7 +45,7 @@ pub async fn activity(
     sqlx::query(
         r#"
         UPDATE toygres_cms.instances
-        SET state = $2::instance_state,
+        SET state = $2::toygres_cms.instance_state,
             ip_connection_string = COALESCE($3, ip_connection_string),
             dns_connection_string = COALESCE($4, dns_connection_string),
             external_ip = COALESCE($5, external_ip),

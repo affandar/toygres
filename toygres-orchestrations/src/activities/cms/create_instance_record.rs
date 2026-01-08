@@ -30,7 +30,7 @@ pub async fn activity(
         INSERT INTO toygres_cms.instances
         (user_name, k8s_name, namespace, postgres_version, storage_size_gb,
          use_load_balancer, dns_name, state, create_orchestration_id, image_type)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, 'creating', $8, $9::public.image_type)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'creating', $8, $9::toygres_cms.image_type)
         ON CONFLICT (k8s_name) DO UPDATE
         SET user_name = EXCLUDED.user_name,
             namespace = EXCLUDED.namespace,

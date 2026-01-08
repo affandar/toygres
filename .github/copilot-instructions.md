@@ -163,6 +163,24 @@ PGPASSWORD=<password> psql "postgresql://postgres@<ip>:5432/postgres?gssencmode=
 
 ## Duroxide Orchestration Versioning
 
+**⚠️ CRITICAL: Orchestration code is IMMUTABLE once deployed**
+
+Orchestrations are durable workflows that may be running for hours, days, or indefinitely. Changing orchestration code without proper versioning will break running instances and cause undefined behavior.
+
+**How to Identify Orchestration Code:**
+1. **Function signature**: Takes `OrchestrationContext` (or `ctx: OrchestrationContext`) as first parameter
+2. **Function name**: Contains `_orchestration` suffix (e.g., `create_instance_orchestration`)
+3. **File location**: Lives in `toygres-orchestrations/src/orchestrations/`
+4. **Helper functions**: Any `async fn` in orchestration files that takes `&OrchestrationContext` is also orchestration code
+
+**⚠️ NEVER modify existing orchestration functions directly. Always create a new version.**
+
+**When You MUST Create a New Version:**
+- ANY change to orchestration logic, even "minor" fixes
+- Changes to helper functions called by orchestrations
+- Changes to activity call order or parameters within orchestrations
+- Bug fixes, error handling changes, logging changes - ALL require versioning
+
 **Registering Versioned Orchestrations**:
 ```rust
 // Default version (1.0.0) - use register_typed
@@ -189,11 +207,12 @@ T+1:01  v1.0.1 calls continue_as_new() → Duroxide resolves "Latest" → v1.0.2
 T+1:02  UI refreshes, now shows v1.0.2
 ```
 
-**Best Practices for Versioned Orchestrations**:
+**Required Steps for Versioned Orchestrations**:
 1. Keep the same orchestration NAME constant across versions
 2. Create separate functions per version: `my_orch()`, `my_orch_1_0_1()`, `my_orch_1_0_2()`
 3. Add version prefix to trace logs for debugging: `ctx.trace_info("[v1.0.2] Starting...")`
-4. Version info flows: Duroxide `InstanceInfo.orchestration_version` → Backend API → UI
+4. Register all versions in `registry.rs` - old versions for running instances, new for future
+5. Version info flows: Duroxide `InstanceInfo.orchestration_version` → Backend API → UI
 
 ## Environment Variables
 

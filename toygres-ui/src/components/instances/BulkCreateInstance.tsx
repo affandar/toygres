@@ -18,6 +18,7 @@ export function BulkCreateInstance() {
   const [postgresVersion, setPostgresVersion] = useState('18');
   const [storageSize, setStorageSize] = useState(10);
   const [internal, setInternal] = useState(false);
+  const [imageType, setImageType] = useState<'stock' | 'pg_durable'>('stock');
 
   const createMutation = useMutation({
     mutationFn: (data: {
@@ -28,6 +29,7 @@ export function BulkCreateInstance() {
       storage_size_gb: number;
       internal: boolean;
       namespace: string;
+      image_type: string;
     }) => api.bulkCreateInstances(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['instances'] });
@@ -65,6 +67,7 @@ export function BulkCreateInstance() {
       storage_size_gb: storageSize,
       internal,
       namespace: 'toygres',
+      image_type: imageType,
     });
   };
 
@@ -171,6 +174,23 @@ export function BulkCreateInstance() {
                   className="w-full border rounded-md px-3 py-2"
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-1">
+                Image Type
+              </label>
+              <select
+                value={imageType}
+                onChange={(e) => setImageType(e.target.value as 'stock' | 'pg_durable')}
+                className="w-full border rounded-md px-3 py-2"
+              >
+                <option value="stock">Stock PostgreSQL</option>
+                <option value="pg_durable">PG Durable (with duroxide extension)</option>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Stock uses vanilla postgres image, PG Durable includes the duroxide extension
+              </p>
             </div>
 
             <div className="flex items-center gap-2">

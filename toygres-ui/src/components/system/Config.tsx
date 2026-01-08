@@ -67,8 +67,16 @@ export function Config() {
               <span className="text-sm font-medium">{config.database.provider}</span>
             </div>
             <div className="flex justify-between">
-              <span className="text-sm text-muted-foreground">Schema</span>
+              <span className="text-sm text-muted-foreground">CMS DB Host</span>
+              <span className="text-sm font-mono text-xs break-all">{status?.cmsDbHostname || 'Unknown'}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-muted-foreground">CMS Schema</span>
               <span className="text-sm font-mono">{config.database.schema}</span>
+            </div>
+            <div className="flex justify-between">
+              <span className="text-sm text-muted-foreground">Duroxide DB Host</span>
+              <span className="text-sm font-mono text-xs break-all">{status?.duroxideDbHostname || 'Unknown'}</span>
             </div>
             <div className="flex justify-between">
               <span className="text-sm text-muted-foreground">Duroxide Schema</span>

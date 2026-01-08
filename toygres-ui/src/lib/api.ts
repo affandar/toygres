@@ -47,6 +47,8 @@ export const api = {
         serverRunning: true,
         apiHealthy: health.status === 'healthy',
         version: health.version,
+        cmsDbHostname: health.cms_db_hostname,
+        duroxideDbHostname: health.duroxide_db_hostname,
       };
     } catch (error) {
       return {
@@ -189,6 +191,44 @@ export const api = {
     });
   },
 
+  // Instance Actor (Health Monitoring) Controls
+  async startInstanceActor(name: string): Promise<{
+    instance_name: string;
+    k8s_name: string;
+    actor_id: string;
+    status: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/actor/start`, {
+      method: 'POST',
+    });
+  },
+
+  async restartInstanceActor(name: string): Promise<{
+    instance_name: string;
+    k8s_name: string;
+    actor_id: string;
+    cancelled_existing: boolean;
+    status: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/actor/restart`, {
+      method: 'POST',
+    });
+  },
+
+  async cancelInstanceActor(name: string): Promise<{
+    instance_name: string;
+    k8s_name: string;
+    actor_id: string;
+    status: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/actor/cancel`, {
+      method: 'POST',
+    });
+  },
+
   async bulkCreateInstances(data: {
     base_name: string;
     count: number;
@@ -197,6 +237,7 @@ export const api = {
     storage_size_gb?: number;
     internal?: boolean;
     namespace?: string;
+    image_type?: string;
   }): Promise<{
     count: number;
     instances: Array<{

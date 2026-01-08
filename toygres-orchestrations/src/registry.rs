@@ -20,9 +20,21 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             orchestrations::CREATE_INSTANCE,
             crate::orchestrations::create_instance::create_instance_orchestration,
         )
+        // v1.0.1: CMS updates now propagate errors (schema-qualified enums)
+        .register_versioned_typed(
+            orchestrations::CREATE_INSTANCE,
+            "1.0.1",
+            crate::orchestrations::create_instance::create_instance_1_0_1,
+        )
         .register_typed(
             orchestrations::DELETE_INSTANCE,
             crate::orchestrations::delete_instance::delete_instance_orchestration,
+        )
+        // v1.0.1: CMS updates now propagate errors (schema-qualified enums)
+        .register_versioned_typed(
+            orchestrations::DELETE_INSTANCE,
+            "1.0.1",
+            crate::orchestrations::delete_instance::delete_instance_1_0_1,
         )
         .register_typed(
             orchestrations::INSTANCE_ACTOR,

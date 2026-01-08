@@ -10,16 +10,16 @@ BEGIN
         SELECT 1
         FROM pg_type t
         JOIN pg_namespace n ON n.oid = t.typnamespace
-        WHERE t.typname = 'image_type' AND n.nspname = 'public'
+        WHERE t.typname = 'image_type' AND n.nspname = 'toygres_cms'
     ) THEN
-        CREATE TYPE public.image_type AS ENUM ('stock', 'pg_durable');
+        CREATE TYPE toygres_cms.image_type AS ENUM ('stock', 'pg_durable');
     END IF;
 END;
 $$;
 
 -- Add image_type column to instances table
 ALTER TABLE instances 
-ADD COLUMN IF NOT EXISTS image_type public.image_type NOT NULL DEFAULT 'stock';
+ADD COLUMN IF NOT EXISTS image_type toygres_cms.image_type NOT NULL DEFAULT 'stock';
 
 -- Create index for filtering by image type
 CREATE INDEX IF NOT EXISTS idx_instances_image_type ON instances(image_type);
