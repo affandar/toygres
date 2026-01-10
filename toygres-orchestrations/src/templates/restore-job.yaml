@@ -1,0 +1,113 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ job_name }}
+  namespace: {{ namespace }}
+  labels:
+    app.kubernetes.io/name: toygres
+    app.kubernetes.io/component: restore
+    toygres.io/instance: "{{ instance_name }}"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: toygres
+        app.kubernetes.io/component: restore
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: toygres-server
+      restartPolicy: Never
+      containers:
+      - name: restore
+        image: postgres:{{ postgres_version }}
+        env:
+        - name: BLOB_STORAGE_ACCOUNT
+          value: "{{ blob_storage_account }}"
+        - name: BLOB_CONTAINER
+          value: "{{ blob_container }}"
+        - name: BLOB_PATH
+          value: "{{ blob_path }}"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          
+          echo "=== Installing azcopy ==="
+          apt-get update -qq && apt-get install -y -qq curl ca-certificates > /dev/null
+          curl -sL https://aka.ms/downloadazcopy-v10-linux | tar xz --strip-components=1 -C /usr/local/bin
+          
+          echo ""
+          echo "=== Authenticating with Azure ==="
+          azcopy login --login-type=workload
+          
+          BLOB_URL="https://${BLOB_STORAGE_ACCOUNT}.blob.core.windows.net/${BLOB_CONTAINER}/${BLOB_PATH}"
+          
+          echo ""
+          echo "=== Downloading backup ==="
+          echo "Source: ${BLOB_URL}"
+          azcopy copy "${BLOB_URL}/base.tar.gz" /backup/base.tar.gz
+          azcopy copy "${BLOB_URL}/pg_wal.tar.gz" /backup/pg_wal.tar.gz
+          azcopy copy "${BLOB_URL}/checksum.txt" /backup/checksum.txt
+
+          echo ""
+          echo "=== Verifying checksums ==="
+          cd /backup && sha256sum -c checksum.txt
+
+          BASE_SIZE=$(stat -c%s /backup/base.tar.gz)
+          WAL_SIZE=$(stat -c%s /backup/pg_wal.tar.gz)
+          echo "Base size: $BASE_SIZE bytes"
+          echo "WAL size: $WAL_SIZE bytes"
+
+          echo ""
+          echo "=== Extracting base backup ==="
+          # PostgreSQL expects PGDATA at /var/lib/postgresql/data/pgdata (matches StatefulSet mount)
+          mkdir -p /data/pgdata
+          tar -xzf /backup/base.tar.gz -C /data/pgdata
+
+          echo ""
+          echo "=== Extracting WAL files ==="
+          mkdir -p /data/pgdata/pg_wal
+          tar -xzf /backup/pg_wal.tar.gz -C /data/pgdata/pg_wal
+
+          echo ""
+          echo "=== Configuring recovery ==="
+          # Create recovery.signal to trigger recovery mode
+          touch /data/pgdata/recovery.signal
+
+          # Add recovery settings to postgresql.auto.conf
+          echo "" >> /data/pgdata/postgresql.auto.conf
+          echo "# Recovery settings added by restore job" >> /data/pgdata/postgresql.auto.conf
+          echo "recovery_target_action = 'promote'" >> /data/pgdata/postgresql.auto.conf
+          echo "restore_command = '/bin/false'" >> /data/pgdata/postgresql.auto.conf
+
+          echo ""
+          echo "=== Setting permissions ==="
+          # Fix permissions for postgres user (UID 999 in official image)
+          chown -R 999:999 /data/pgdata
+          chmod 700 /data/pgdata
+
+          echo ""
+          echo "=== Restore complete! ==="
+          ls -la /data/pgdata/
+        volumeMounts:
+        - name: backup-vol
+          mountPath: /backup
+        - name: data-vol
+          mountPath: /data
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+      volumes:
+      - name: backup-vol
+        emptyDir:
+          sizeLimit: 100Gi
+      - name: data-vol
+        persistentVolumeClaim:
+          claimName: {{ pvc_name }}

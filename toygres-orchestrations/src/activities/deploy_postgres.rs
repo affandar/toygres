@@ -3,7 +3,7 @@
 use duroxide::ActivityContext;
 use crate::activity_types::{DeployPostgresInput, DeployPostgresOutput, ImageType};
 use crate::k8s_client::{get_k8s_client, check_resources_exist};
-use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service};
+use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service, Secret, ConfigMap};
 use k8s_openapi::api::apps::v1::StatefulSet;
 use kube::api::{Api, PostParams};
 use tera::{Tera, Context as TeraContext};
@@ -76,10 +76,14 @@ async fn create_k8s_resources(
     let mut tera = Tera::default();
     
     // Load templates
+    let secret_template = include_str!("../templates/postgres-secret.yaml");
+    let config_template = include_str!("../templates/postgres-config.yaml");
     let pvc_template = include_str!("../templates/postgres-pvc.yaml");
     let statefulset_template = include_str!("../templates/postgres-statefulset.yaml");
     let service_template = include_str!("../templates/postgres-service.yaml");
     
+    tera.add_raw_template("secret", secret_template)?;
+    tera.add_raw_template("config", config_template)?;
     tera.add_raw_template("pvc", pvc_template)?;
     tera.add_raw_template("statefulset", statefulset_template)?;
     tera.add_raw_template("service", service_template)?;
@@ -100,7 +104,25 @@ async fn create_k8s_resources(
     template_ctx.insert("image", &image);
     template_ctx.insert("image_type", input.image_type.as_str());
     
-    // 1. Create PersistentVolumeClaim
+    // 1. Create Secret for password
+    ctx.trace_info("Creating Secret");
+    let secret_yaml = tera.render("secret", &template_ctx)?;
+    let secret: Secret = serde_yaml::from_str(&secret_yaml)?;
+    
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), &input.namespace);
+    secrets.create(&PostParams::default(), &secret).await?;
+    ctx.trace_info("Secret created");
+    
+    // 2. Create ConfigMap for pg_hba.conf (enables replication for backups)
+    ctx.trace_info("Creating ConfigMap");
+    let config_yaml = tera.render("config", &template_ctx)?;
+    let configmap: ConfigMap = serde_yaml::from_str(&config_yaml)?;
+    
+    let configmaps: Api<ConfigMap> = Api::namespaced(client.clone(), &input.namespace);
+    configmaps.create(&PostParams::default(), &configmap).await?;
+    ctx.trace_info("ConfigMap created");
+    
+    // 3. Create PersistentVolumeClaim
     ctx.trace_info("Creating PersistentVolumeClaim");
     let pvc_yaml = tera.render("pvc", &template_ctx)?;
     let pvc: PersistentVolumeClaim = serde_yaml::from_str(&pvc_yaml)?;
@@ -109,7 +131,7 @@ async fn create_k8s_resources(
     pvcs.create(&PostParams::default(), &pvc).await?;
     ctx.trace_info("PersistentVolumeClaim created");
     
-    // 2. Create StatefulSet
+    // 4. Create StatefulSet
     ctx.trace_info("Creating StatefulSet");
     let statefulset_yaml = tera.render("statefulset", &template_ctx)?;
     let statefulset: StatefulSet = serde_yaml::from_str(&statefulset_yaml)?;
@@ -118,7 +140,7 @@ async fn create_k8s_resources(
     statefulsets.create(&PostParams::default(), &statefulset).await?;
     ctx.trace_info("StatefulSet created");
     
-    // 3. Create Service
+    // 5. Create Service
     ctx.trace_info("Creating Service");
     let service_yaml = tera.render("service", &template_ctx)?;
     let service: Service = serde_yaml::from_str(&service_yaml)?;

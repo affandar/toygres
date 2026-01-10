@@ -15,4 +15,8 @@ data:
   # Kubernetes Environment Detection
   # When set, server outputs logs to stdout instead of file
   KUBERNETES_DEPLOYMENT: "true"
+  
+  # Azure Storage Configuration (for PostgreSQL images/backups)
+  AZURE_STORAGE_ACCOUNT: "toygresstorage"
+  AZURE_STORAGE_CONTAINER: "toygres-images"
 

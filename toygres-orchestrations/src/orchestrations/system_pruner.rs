@@ -8,6 +8,9 @@
 /// It logs all prune/delete operations for debugging.
 
 use duroxide::OrchestrationContext;
+
+/// Orchestration name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::orchestration::system-pruner";
 use std::time::Duration;
 
 use crate::activity_types::{

@@ -5,6 +5,21 @@ metadata:
   namespace: toygres-system
   labels:
     app.kubernetes.io/name: toygres
+  annotations:
+    # Workload Identity: link to Azure managed identity for blob storage access
+    azure.workload.identity/client-id: "${AZURE_STORAGE_CLIENT_ID}"
+---
+# Service account in the instance namespace (for backup/restore jobs)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: toygres-server
+  namespace: toygres
+  labels:
+    app.kubernetes.io/name: toygres
+  annotations:
+    # Workload Identity: link to Azure managed identity for blob storage access
+    azure.workload.identity/client-id: "${AZURE_STORAGE_CLIENT_ID}"
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -45,6 +60,10 @@ rules:
   - apiGroups: [""]
     resources: ["nodes"]
     verbs: ["get", "list"]
+  # Job management for backup/restore operations
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

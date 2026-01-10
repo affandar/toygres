@@ -1,4 +1,4 @@
-import type { Instance, InstanceDetail, Orchestration, HealthResponse, ServerStatus } from './types';
+import type { Instance, InstanceDetail, Orchestration, HealthResponse, ServerStatus, Image, ImageDetail } from './types';
 
 const API_BASE = ''; // Proxy configured in vite.config.ts
 
@@ -133,6 +133,7 @@ export const api = {
     internal?: boolean;
     namespace?: string;
     image_type?: 'stock' | 'pg_durable';
+    source_image_id?: string;
   }): Promise<{
     instance_name: string;
     k8s_name: string;
@@ -409,6 +410,67 @@ export const api = {
     total_entries: number;
   }> {
     return fetchJson(`${API_BASE}/api/server/prune-log`);
+  },
+
+  // Images
+  async listImages(): Promise<Image[]> {
+    return fetchJson<Image[]>(`${API_BASE}/api/images`);
+  },
+
+  async getImage(name: string): Promise<ImageDetail> {
+    return fetchJson<ImageDetail>(`${API_BASE}/api/images/${name}`);
+  },
+
+  async getImageJobLogs(name: string): Promise<{
+    image_name: string;
+    job_name: string;
+    job_status: string;
+    logs: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/images/${name}/logs`);
+  },
+
+  async createImage(data: {
+    name: string;
+    source_k8s_name: string;
+    password?: string;
+    description?: string;
+    namespace?: string;
+  }): Promise<{
+    image_name: string;
+    orchestration_id: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/images`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async createImageFromInstance(instanceName: string, data: {
+    name: string;
+    password?: string;
+    description?: string;
+  }): Promise<{
+    image_name: string;
+    source_instance: string;
+    orchestration_id: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${instanceName}/images`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  async deleteImage(name: string): Promise<{
+    image_name: string;
+    status: string;
+    message: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/images/${name}`, {
+      method: 'DELETE',
+    });
   },
 };
 

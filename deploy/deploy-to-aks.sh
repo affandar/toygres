@@ -162,6 +162,13 @@ echo -e "${GREEN}✓ Secrets created${NC}"
 echo -e "\n${BLUE}📦 Deploying to Kubernetes...${NC}"
 
 # Replace ACR_NAME in manifests and apply (skip secret.yaml and ingress.yaml)
+# Also get the storage identity client ID for workload identity
+AZURE_STORAGE_CLIENT_ID=$(az identity show --name toygres-storage-identity --resource-group "$AKS_RESOURCE_GROUP" --query clientId -o tsv 2>/dev/null || echo "")
+if [ -z "$AZURE_STORAGE_CLIENT_ID" ]; then
+    echo -e "${YELLOW}⚠ Storage identity not found. Image feature will not work until created.${NC}"
+    AZURE_STORAGE_CLIENT_ID="placeholder-storage-client-id"
+fi
+
 for file in "$SCRIPT_DIR/k8s/"*.yaml; do
     if [ -f "$file" ]; then
         filename=$(basename "$file")
@@ -176,7 +183,7 @@ for file in "$SCRIPT_DIR/k8s/"*.yaml; do
             continue
         fi
         echo "  Applying $filename..."
-        sed "s/\${ACR_NAME}/$ACR_NAME/g" "$file" | kubectl apply -f -
+        sed -e "s/\${ACR_NAME}/$ACR_NAME/g" -e "s/\${AZURE_STORAGE_CLIENT_ID}/$AZURE_STORAGE_CLIENT_ID/g" "$file" | kubectl apply -f -
     fi
 done
 

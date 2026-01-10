@@ -4,7 +4,7 @@ use duroxide::ActivityContext;
 use crate::activity_types::{DeletePostgresInput, DeletePostgresOutput};
 use crate::k8s_client::{get_k8s_client, check_resources_exist};
 use k8s_openapi::api::apps::v1::StatefulSet;
-use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service};
+use k8s_openapi::api::core::v1::{PersistentVolumeClaim, Service, Secret, ConfigMap};
 use kube::api::{Api, DeleteParams};
 
 /// Activity name for registration and scheduling
@@ -82,6 +82,30 @@ async fn delete_k8s_resources(
             ctx.trace_info("PersistentVolumeClaim not found, skipping");
         }
         Err(e) => return Err(anyhow::anyhow!("Failed to delete PVC: {}", e)),
+    }
+
+    // Delete Secret
+    ctx.trace_info("Deleting Secret");
+    let secrets: Api<Secret> = Api::namespaced(client.clone(), &input.namespace);
+    let secret_name = format!("{}-secret", input.instance_name);
+    match secrets.delete(&secret_name, &delete_params).await {
+        Ok(_) => ctx.trace_info("Secret deleted"),
+        Err(kube::Error::Api(response)) if response.code == 404 => {
+            ctx.trace_info("Secret not found, skipping");
+        }
+        Err(e) => return Err(anyhow::anyhow!("Failed to delete Secret: {}", e)),
+    }
+    
+    // Delete ConfigMap
+    ctx.trace_info("Deleting ConfigMap");
+    let configmaps: Api<ConfigMap> = Api::namespaced(client.clone(), &input.namespace);
+    let configmap_name = format!("{}-config", input.instance_name);
+    match configmaps.delete(&configmap_name, &delete_params).await {
+        Ok(_) => ctx.trace_info("ConfigMap deleted"),
+        Err(kube::Error::Api(response)) if response.code == 404 => {
+            ctx.trace_info("ConfigMap not found, skipping");
+        }
+        Err(e) => return Err(anyhow::anyhow!("Failed to delete ConfigMap: {}", e)),
     }
 
     Ok(())

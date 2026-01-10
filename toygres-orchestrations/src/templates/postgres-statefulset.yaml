@@ -31,9 +31,19 @@ spec:
         ports:
         - containerPort: 5432
           name: postgres
+        args:
+          - "-c"
+          - "wal_level=replica"
+          - "-c"
+          - "max_wal_senders=3"
+          - "-c"
+          - "hba_file=/etc/postgresql/pg_hba.conf"
         env:
         - name: POSTGRES_PASSWORD
-          value: "{{ password }}"
+          valueFrom:
+            secretKeyRef:
+              name: {{ name }}-secret
+              key: POSTGRES_PASSWORD
         - name: POSTGRES_USER
           value: postgres
         - name: POSTGRES_DB
@@ -47,8 +57,14 @@ spec:
         volumeMounts:
         - name: postgres-storage
           mountPath: /var/lib/postgresql/data
+        - name: postgres-config
+          mountPath: /etc/postgresql
+          readOnly: true
       volumes:
       - name: postgres-storage
         persistentVolumeClaim:
           claimName: {{ name }}-pvc
+      - name: postgres-config
+        configMap:
+          name: {{ name }}-config
 

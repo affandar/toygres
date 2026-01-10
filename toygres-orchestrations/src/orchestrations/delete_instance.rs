@@ -1,6 +1,9 @@
 //! Delete PostgreSQL instance orchestration
 
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
+
+/// Orchestration name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::orchestration::delete-instance";
 use std::time::Duration;
 use crate::types::{DeleteInstanceInput, DeleteInstanceOutput};
 use crate::activities::{self, cms};
@@ -326,5 +329,149 @@ async fn update_cms_state_v1_0_1(
         .await
         .map_err(|e| format!("Failed to update CMS state: {}", e))?;
     Ok(())
+}
+
+// ============================================================================
+// v1.0.2 - Send InstanceDeleted signal to actor before deleting CMS record
+// ============================================================================
+
+use crate::activity_types::{SendExternalEventInput, SendExternalEventOutput};
+
+/// v1.0.2: Deletes PostgreSQL instance and signals actor to stop gracefully
+///
+/// Changes from v1.0.1:
+/// - Sends InstanceDeleted external event to instance actor before deleting CMS record
+/// - Actor receives signal and exits gracefully instead of timing out
+pub async fn delete_instance_1_0_2(
+    ctx: OrchestrationContext,
+    input: DeleteInstanceInput,
+) -> Result<DeleteInstanceOutput, String> {
+    ctx.trace_info(format!(
+        "[v1.0.2] Deleting PostgreSQL instance: {} (orchestration: {})",
+        input.name, input.orchestration_id
+    ));
+
+    let namespace = input.namespace.clone().unwrap_or_else(|| "toygres".to_string());
+
+    // Get CMS record with retry for resilience
+    let cms_record = ctx
+        .schedule_activity_with_retry_typed::<GetInstanceByK8sNameInput, GetInstanceByK8sNameOutput>(
+            cms::get_instance_by_k8s_name::NAME,
+            &GetInstanceByK8sNameInput {
+                k8s_name: input.name.clone(),
+            },
+            RetryPolicy::new(3)
+                .with_backoff(BackoffStrategy::Fixed {
+                    delay: Duration::from_secs(2),
+                })
+                .with_timeout(Duration::from_secs(10)),
+        )
+        .await
+        .map_err(|e| format!("Failed to query CMS record after retries: {}", e))?;
+
+    // Store instance actor ID for later use
+    let instance_actor_id = cms_record.instance_actor_orchestration_id.clone();
+
+    if cms_record.found {
+        let update_input = UpdateInstanceStateInput {
+            k8s_name: input.name.clone(),
+            state: "deleting".to_string(),
+            ip_connection_string: None,
+            dns_connection_string: None,
+            external_ip: None,
+            delete_orchestration_id: Some(input.orchestration_id.clone()),
+            message: Some("Deletion requested".to_string()),
+        };
+        // v1.0.1: Propagate CMS update error
+        update_cms_state_v1_0_1(&ctx, update_input).await?;
+    } else {
+        ctx.trace_info("[v1.0.2] CMS record not found, proceeding with best-effort cleanup");
+    }
+
+    // v1.0.2: Send InstanceDeleted signal to actor BEFORE deleting resources
+    if let Some(ref actor_id) = instance_actor_id {
+        ctx.trace_info(format!(
+            "[v1.0.2] Sending InstanceDeleted signal to actor '{}'",
+            actor_id
+        ));
+
+        let signal_input = SendExternalEventInput {
+            instance_id: actor_id.clone(),
+            event_name: "InstanceDeleted".to_string(),
+            payload: "{}".to_string(),
+        };
+
+        // Best effort - don't fail if signal can't be sent (actor might already be done)
+        let signal_result = ctx
+            .schedule_activity_typed::<SendExternalEventInput, SendExternalEventOutput>(
+                activities::send_external_event::NAME,
+                &signal_input,
+            )
+            .into_activity_typed::<SendExternalEventOutput>()
+            .await;
+
+        match signal_result {
+            Ok(output) => {
+                if output.sent {
+                    ctx.trace_info("[v1.0.2] InstanceDeleted signal sent successfully");
+                } else {
+                    ctx.trace_info("[v1.0.2] InstanceDeleted signal could not be sent (actor may already be stopped)");
+                }
+            }
+            Err(e) => {
+                ctx.trace_warn(format!("[v1.0.2] Failed to send InstanceDeleted signal: {}", e));
+            }
+        }
+    } else {
+        ctx.trace_info("[v1.0.2] No instance actor recorded, skipping signal");
+    }
+
+    // Step 1: Delete PostgreSQL resources
+    ctx.trace_info("[v1.0.2] Step 1: Deleting PostgreSQL from Kubernetes");
+    let delete_input = DeletePostgresInput {
+        namespace: namespace.clone(),
+        instance_name: input.name.clone(),
+    };
+
+    // Delete K8s resources with retry - API calls can be flaky
+    let delete_output = ctx
+        .schedule_activity_with_retry_typed::<DeletePostgresInput, DeletePostgresOutput>(
+            activities::delete_postgres::NAME,
+            &delete_input,
+            RetryPolicy::new(3)
+                .with_backoff(BackoffStrategy::Exponential {
+                    base: Duration::from_secs(1),
+                    multiplier: 2.0,
+                    max: Duration::from_secs(10),
+                })
+                .with_timeout(Duration::from_secs(60)),
+        )
+        .await?;
+
+    ctx.trace_info(format!("[v1.0.2] Instance deletion complete (deleted: {})", delete_output.deleted));
+
+    // Mark as deleted state
+    let update_input = UpdateInstanceStateInput {
+        k8s_name: input.name.clone(),
+        state: "deleted".to_string(),
+        ip_connection_string: None,
+        dns_connection_string: None,
+        external_ip: None,
+        delete_orchestration_id: Some(input.orchestration_id.clone()),
+        message: Some(format!("Deleted (resources deleted: {})", delete_output.deleted)),
+    };
+    update_cms_state_v1_0_1(&ctx, update_input).await?;
+
+    // Step 3: Delete the CMS record
+    ctx.trace_info("[v1.0.2] Removing CMS record");
+    delete_cms_record(&ctx, &input.name).await;
+
+    free_dns_name(&ctx, &input.name).await;
+
+    // Return output
+    Ok(DeleteInstanceOutput {
+        instance_name: input.name,
+        deleted: delete_output.deleted,
+    })
 }
 

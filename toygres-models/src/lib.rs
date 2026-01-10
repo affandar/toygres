@@ -4,18 +4,19 @@ use uuid::Uuid;
 
 /// Represents the state of a PostgreSQL instance
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "instance_state", rename_all = "lowercase")]
+#[sqlx(type_name = "toygres_cms.instance_state", rename_all = "lowercase")]
 pub enum InstanceState {
     Creating,
     Running,
     Deleting,
     Deleted,
     Failed,
+    Stopped,
 }
 
 /// Represents the health status of a PostgreSQL instance
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "health_status", rename_all = "lowercase")]
+#[sqlx(type_name = "toygres_cms.health_status", rename_all = "lowercase")]
 pub enum HealthStatus {
     Healthy,
     Unhealthy,

@@ -250,6 +250,9 @@ pub struct CmsInstanceRecord {
     pub namespace: String,
     pub state: String,
     pub dns_name: Option<String>,
+    pub postgres_version: String,
+    pub storage_size_gb: i32,
+    pub image_type: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -423,5 +426,262 @@ pub struct PruneLogEntry {
     pub status: String,
     /// Additional details
     pub details: String,
+}
+
+// ============================================================================
+// Image State Enum
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum ImageState {
+    Creating,
+    Ready,
+    Failed,
+    Deleting,
+    Deleted,
+}
+
+impl ImageState {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ImageState::Creating => "creating",
+            ImageState::Ready => "ready",
+            ImageState::Failed => "failed",
+            ImageState::Deleting => "deleting",
+            ImageState::Deleted => "deleted",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s.to_lowercase().as_str() {
+            "creating" => ImageState::Creating,
+            "ready" => ImageState::Ready,
+            "failed" => ImageState::Failed,
+            "deleting" => ImageState::Deleting,
+            "deleted" => ImageState::Deleted,
+            _ => ImageState::Creating,
+        }
+    }
+}
+
+// ============================================================================
+// Image CMS Operations (Consolidated Activity)
+// ============================================================================
+
+/// Enum-based CMS operations for images
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "op", rename_all = "snake_case")]
+pub enum ImageOperation {
+    /// Create a new image record (idempotent via orchestration_id)
+    Create {
+        name: String,
+        description: Option<String>,
+        source_instance_id: Uuid,
+        source_k8s_name: String,
+        source_namespace: String,
+        blob_storage_url: String,
+        blob_container: String,
+        blob_path: String,
+        storage_size_gb: i32,
+        postgres_version: String,
+        image_type: String,
+        source_password_encrypted: Vec<u8>,
+        orchestration_id: String,
+    },
+    
+    /// Update image state (creating → ready, failed, deleting, deleted)
+    UpdateState {
+        name: String,
+        state: ImageState,
+        backup_size_bytes: Option<i64>,
+        backup_checksum: Option<String>,
+        error_message: Option<String>,
+    },
+    
+    /// Get image by name
+    Get { name: String },
+    
+    /// Get image by ID
+    GetById { id: Uuid },
+    
+    /// List all active images
+    List,
+    
+    /// Mark image as deleted (soft delete)
+    Delete { name: String },
+
+    /// Get source password for restore (decrypts the stored password)
+    GetSourcePassword { id: Uuid },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ImageRecord {
+    pub id: Uuid,
+    pub name: String,
+    pub description: Option<String>,
+    pub source_instance_id: Option<Uuid>,
+    pub source_k8s_name: String,
+    pub source_namespace: String,
+    pub blob_storage_url: String,
+    pub blob_container: String,
+    pub blob_path: String,
+    pub storage_size_gb: i32,
+    pub postgres_version: String,
+    pub image_type: String,
+    pub backup_size_bytes: Option<i64>,
+    pub backup_checksum: Option<String>,
+    pub state: String,
+    pub error_message: Option<String>,
+    pub created_at: String,
+    pub ready_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "result", rename_all = "snake_case")]
+pub enum ImageOperationResult {
+    Created { image_id: Uuid },
+    Updated { updated: bool },
+    Found { record: ImageRecord },
+    NotFound,
+    Listed { images: Vec<ImageRecord> },
+    Deleted { deleted: bool },
+    PasswordFound { password: String },
+}
+
+// ============================================================================
+// Run Backup Job Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunBackupJobInput {
+    pub job_name: String,
+    pub namespace: String,
+    pub source_instance_name: String,
+    pub source_password: String,
+    pub blob_storage_account: String,
+    pub blob_container: String,
+    pub blob_path: String,
+    pub image_name: String,
+    pub postgres_version: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RunBackupJobOutput {
+    pub job_name: String,
+    pub created: bool,
+}
+
+// ============================================================================
+// Wait For Job Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WaitForJobInput {
+    pub job_name: String,
+    pub namespace: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WaitForJobOutput {
+    pub succeeded: bool,
+    pub failed: bool,
+    pub active: bool,
+    pub completion_time: Option<String>,
+    pub message: Option<String>,
+}
+
+// ============================================================================
+// Delete Job Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteJobInput {
+    pub job_name: String,
+    pub namespace: String,
+    pub delete_secret: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteJobOutput {
+    pub deleted: bool,
+}
+
+// ============================================================================
+// Delete Blob Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteBlobInput {
+    pub blob_storage_account: String,
+    pub blob_container: String,
+    pub blob_path: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeleteBlobOutput {
+    pub deleted: bool,
+}
+
+// ============================================================================
+// Get Instance Password Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetInstancePasswordInput {
+    /// K8s instance name (used to construct secret name: {k8s_name}-secret)
+    pub k8s_name: String,
+    /// Kubernetes namespace
+    pub namespace: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetInstancePasswordOutput {
+    /// Whether the secret was found
+    pub found: bool,
+    /// The password if found
+    pub password: Option<String>,
+}
+
+// ============================================================================
+// Send External Event Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendExternalEventInput {
+    /// Target orchestration instance ID
+    pub instance_id: String,
+    /// Event name (e.g., "InstanceDeleted")
+    pub event_name: String,
+    /// Event payload (JSON string)
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SendExternalEventOutput {
+    /// Whether the event was sent successfully
+    pub sent: bool,
+}
+
+// ============================================================================
+// Create PVC Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePvcInput {
+    /// Name of the PVC (typically same as instance name)
+    pub name: String,
+    /// Namespace for the PVC
+    pub namespace: String,
+    /// Storage size in GB
+    pub storage_size_gb: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreatePvcOutput {
+    /// Name of the created PVC
+    pub pvc_name: String,
+    /// Whether the PVC was created (false if it already existed)
+    pub created: bool,
 }
 

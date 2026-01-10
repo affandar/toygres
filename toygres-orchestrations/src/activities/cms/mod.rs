@@ -7,6 +7,7 @@ pub mod record_health_check;
 pub mod update_instance_health;
 pub mod record_instance_actor;
 pub mod delete_instance_record;
+pub mod image_ops;
 
 mod db;
 

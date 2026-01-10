@@ -11,6 +11,9 @@ import { CreateInstance } from '@/components/instances/CreateInstance';
 import { BulkCreateInstance } from '@/components/instances/BulkCreateInstance';
 import { InstanceLogsPage } from '@/components/instances/InstanceLogsPage';
 import { InstanceWorkflowsPage } from '@/components/instances/InstanceWorkflowsPage';
+import { ImageList } from '@/components/images/ImageList';
+import { ImageDetail } from '@/components/images/ImageDetail';
+import { CreateImage } from '@/components/images/CreateImage';
 import { Stats } from '@/components/system/Stats';
 import { Config } from '@/components/system/Config';
 import { Workers } from '@/components/system/Workers';
@@ -65,6 +68,13 @@ function AppRoutes() {
           <Route path=":name" element={<InstanceDetail />} />
           <Route path=":name/logs" element={<InstanceLogsPage />} />
           <Route path=":name/workflows" element={<InstanceWorkflowsPage />} />
+        </Route>
+        
+        {/* Images */}
+        <Route path="images">
+          <Route index element={<ImageList />} />
+          <Route path="create" element={<CreateImage />} />
+          <Route path=":name" element={<ImageDetail />} />
         </Route>
         
         {/* System */}

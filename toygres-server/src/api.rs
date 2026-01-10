@@ -64,6 +64,11 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/server/orchestration-flows/:name", get(get_orchestration_flow))
         .route("/api/server/logs", get(get_logs))
         .route("/api/server/prune-log", get(get_prune_log))
+        // Image routes
+        .route("/api/images", get(list_images).post(create_image))
+        .route("/api/images/:name", get(get_image).delete(delete_image))
+        .route("/api/images/:name/logs", get(get_image_job_logs))
+        .route("/api/instances/:name/images", post(create_image_from_instance))
         // Auth middleware
         .layer(middleware::from_fn(auth::auth_middleware))
         // Cookie management
@@ -319,6 +324,9 @@ struct CreateInstanceRequest {
     /// Image type: "stock" (default) or "pg_durable"
     #[serde(default = "default_image_type")]
     image_type: String,
+    /// Optional source image ID to restore from
+    #[serde(default)]
+    source_image_id: Option<String>,
 }
 
 fn default_version() -> String {
@@ -373,9 +381,10 @@ async fn create_instance(
         namespace: Some(req.namespace),
         orchestration_id: orchestration_id.clone(),
         image_type: image_type.clone(),
+        source_image_id: req.source_image_id,
     };
     
-    // Start the create orchestration
+    // Start the create orchestration (uses latest registered version via default Latest policy)
     state.duroxide_client
         .start_orchestration(
             &orchestration_id,
@@ -467,6 +476,7 @@ async fn bulk_create_instances(
             namespace: Some(namespace.to_string()),
             orchestration_id: orchestration_id.clone(),
             image_type: image_type.clone(),
+            source_image_id: None,
         };
         
         state.duroxide_client
@@ -1673,27 +1683,20 @@ async fn get_orchestration(
 }
 
 async fn cancel_orchestration(
-    State(_state): State<AppState>,
-    Path(_id): Path<String>,
+    State(state): State<AppState>,
+    Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // TODO: Implement once duroxide Client supports cancel_orchestration
-    // The cancel_orchestration method currently only exists on OrchestrationContext (for use within orchestrations),
-    // not on the Client (for management operations). Once the duroxide management API is extended,
-    // we can uncomment the implementation below:
-    //
-    // if !state.duroxide_client.has_management_capability() {
-    //     return Err(AppError::Internal("Management features not available".to_string()));
-    // }
-    // 
-    // state.duroxide_client
-    //     .cancel_orchestration(&id)
-    //     .await
-    //     .map_err(|e| AppError::Internal(format!("Failed to cancel: {}", e)))?;
+    // Use cancel_instance to cancel any orchestration by its instance ID
+    state.duroxide_client
+        .cancel_instance(&id, "Cancelled by user via management API")
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to cancel orchestration: {}", e)))?;
     
-    Err(AppError::NotImplemented(
-        "Orchestration cancellation via management API not yet available in duroxide. \
-         This feature requires duroxide Client to expose a cancel_orchestration method.".to_string()
-    ))
+    Ok(Json(serde_json::json!({
+        "instance_id": id,
+        "status": "cancelled",
+        "message": "Orchestration cancellation requested"
+    })))
 }
 
 async fn raise_event_to_orchestration(
@@ -2273,6 +2276,411 @@ async fn get_prune_log(
         "prune_log": prune_logs,
         "total_entries": prune_logs.len(),
     })))
+}
+
+// ============================================================================
+// Image API Handlers
+// ============================================================================
+
+#[derive(serde::Deserialize)]
+struct CreateImageRequest {
+    name: String,
+    description: Option<String>,
+    /// Password is optional - if not provided, it will be fetched from K8s Secret
+    #[serde(default)]
+    password: Option<String>,
+}
+
+async fn list_images(
+    State(_state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // Get database pool directly since we need to query CMS
+    let pool = get_cms_pool().await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    
+    let rows = sqlx::query(
+        r#"
+        SELECT id, name, description, source_instance_id, source_k8s_name, source_namespace,
+               blob_storage_url, blob_container, blob_path,
+               storage_size_gb, postgres_version, image_type::text,
+               backup_size_bytes, backup_checksum, state::text,
+               error_message, created_at, ready_at
+        FROM toygres_cms.images
+        WHERE state != 'deleted'
+        ORDER BY created_at DESC
+        "#
+    )
+    .fetch_all(&*pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to list images: {}", e)))?;
+
+    let images: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            use sqlx::Row;
+            use chrono::{DateTime, Utc};
+            
+            let created_at: DateTime<Utc> = row.get("created_at");
+            let ready_at: Option<DateTime<Utc>> = row.get("ready_at");
+            
+            serde_json::json!({
+                "id": row.get::<uuid::Uuid, _>("id").to_string(),
+                "name": row.get::<String, _>("name"),
+                "description": row.get::<Option<String>, _>("description"),
+                "source_k8s_name": row.get::<String, _>("source_k8s_name"),
+                "state": row.get::<String, _>("state"),
+                "storage_size_gb": row.get::<i32, _>("storage_size_gb"),
+                "postgres_version": row.get::<String, _>("postgres_version"),
+                "image_type": row.get::<String, _>("image_type"),
+                "backup_size_bytes": row.get::<Option<i64>, _>("backup_size_bytes"),
+                "created_at": created_at.to_rfc3339(),
+                "ready_at": ready_at.map(|t| t.to_rfc3339()),
+            })
+        })
+        .collect();
+    
+    Ok(Json(serde_json::json!(images)))
+}
+
+async fn get_image(
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = get_cms_pool().await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    
+    let row = sqlx::query(
+        r#"
+        SELECT id, name, description, source_instance_id, source_k8s_name, source_namespace,
+               blob_storage_url, blob_container, blob_path,
+               storage_size_gb, postgres_version, image_type::text,
+               backup_size_bytes, backup_checksum, state::text,
+               error_message, created_at, ready_at, create_orchestration_id
+        FROM toygres_cms.images
+        WHERE name = $1 AND state != 'deleted'
+        "#
+    )
+    .bind(&name)
+    .fetch_optional(&*pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to get image: {}", e)))?;
+
+    match row {
+        Some(row) => {
+            use sqlx::Row;
+            use chrono::{DateTime, Utc};
+            
+            let created_at: DateTime<Utc> = row.get("created_at");
+            let ready_at: Option<DateTime<Utc>> = row.get("ready_at");
+            
+            Ok(Json(serde_json::json!({
+                "id": row.get::<uuid::Uuid, _>("id").to_string(),
+                "name": row.get::<String, _>("name"),
+                "description": row.get::<Option<String>, _>("description"),
+                "source_instance_id": row.get::<Option<uuid::Uuid>, _>("source_instance_id").map(|u| u.to_string()),
+                "source_k8s_name": row.get::<String, _>("source_k8s_name"),
+                "source_namespace": row.get::<String, _>("source_namespace"),
+                "blob_storage_url": row.get::<String, _>("blob_storage_url"),
+                "blob_container": row.get::<String, _>("blob_container"),
+                "blob_path": row.get::<String, _>("blob_path"),
+                "state": row.get::<String, _>("state"),
+                "storage_size_gb": row.get::<i32, _>("storage_size_gb"),
+                "postgres_version": row.get::<String, _>("postgres_version"),
+                "image_type": row.get::<String, _>("image_type"),
+                "backup_size_bytes": row.get::<Option<i64>, _>("backup_size_bytes"),
+                "backup_checksum": row.get::<Option<String>, _>("backup_checksum"),
+                "error_message": row.get::<Option<String>, _>("error_message"),
+                "created_at": created_at.to_rfc3339(),
+                "ready_at": ready_at.map(|t| t.to_rfc3339()),
+                "orchestration_id": row.get::<String, _>("create_orchestration_id"),
+            })))
+        }
+        None => Err(AppError::NotFound(format!("Image '{}' not found", name))),
+    }
+}
+
+/// Get backup job logs for an image
+async fn get_image_job_logs(
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use kube::{Api, Client};
+    use k8s_openapi::api::batch::v1::Job;
+    use k8s_openapi::api::core::v1::Pod;
+    
+    // Get the orchestration_id from CMS to construct the job name
+    let pool = get_cms_pool().await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    
+    let row = sqlx::query(
+        "SELECT create_orchestration_id, source_namespace FROM toygres_cms.images WHERE name = $1"
+    )
+    .bind(&name)
+    .fetch_optional(&*pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to get image: {}", e)))?;
+    
+    let (orchestration_id, namespace): (String, String) = match row {
+        Some(row) => {
+            use sqlx::Row;
+            (row.get("create_orchestration_id"), row.get("source_namespace"))
+        }
+        None => return Err(AppError::NotFound(format!("Image '{}' not found", name))),
+    };
+    
+    // Job name format: backup-{sanitized_name}-{orchestration_id_prefix}
+    // The orchestration_id is like "create-image-{name}-{uuid_prefix}"
+    // The job name uses the first 8 chars of the orchestration_id (the uuid part)
+    let sanitized_name = name.to_lowercase().replace('_', "-");
+    let orch_id_suffix = orchestration_id.split('-').last().unwrap_or("unknown");
+    let job_name = format!("backup-{}-{}", sanitized_name, orch_id_suffix);
+    
+    // Get K8s client
+    let client = Client::try_default()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to create K8s client: {}", e)))?;
+    
+    // Try to get job logs from the pod
+    let pods: Api<Pod> = Api::namespaced(client.clone(), &namespace);
+    
+    // Find pods for the job
+    let pod_list = pods.list(&kube::api::ListParams::default().labels(&format!("job-name={}", job_name)))
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to list pods: {}", e)))?;
+    
+    let mut logs = String::new();
+    let mut job_status = "unknown";
+    
+    if let Some(pod) = pod_list.items.first() {
+        let pod_name = pod.metadata.name.as_deref().unwrap_or("unknown");
+        
+        // Get pod phase
+        if let Some(status) = &pod.status {
+            job_status = match status.phase.as_deref() {
+                Some("Succeeded") => "completed",
+                Some("Failed") => "failed",
+                Some("Running") => "running",
+                Some("Pending") => "pending",
+                _ => "unknown",
+            };
+        }
+        
+        // Get logs
+        match pods.logs(pod_name, &kube::api::LogParams {
+            tail_lines: Some(100),
+            ..Default::default()
+        }).await {
+            Ok(pod_logs) => logs = pod_logs,
+            Err(e) => logs = format!("Failed to get logs: {}", e),
+        }
+    } else {
+        // Check if job exists but pod is gone
+        let jobs: Api<Job> = Api::namespaced(client, &namespace);
+        match jobs.get(&job_name).await {
+            Ok(job) => {
+                if let Some(status) = job.status {
+                    if status.succeeded.unwrap_or(0) > 0 {
+                        job_status = "completed";
+                        logs = "Job completed. Pod logs no longer available (pod cleaned up).".to_string();
+                    } else if status.failed.unwrap_or(0) > 0 {
+                        job_status = "failed";
+                        logs = "Job failed. Pod logs no longer available (pod cleaned up).".to_string();
+                    }
+                }
+            }
+            Err(kube::Error::Api(e)) if e.code == 404 => {
+                // Job doesn't exist anymore - it was cleaned up
+                job_status = "cleaned_up";
+                logs = "Backup job has been cleaned up. Logs are no longer available.".to_string();
+            }
+            Err(e) => {
+                return Err(AppError::Internal(format!("Failed to get job: {}", e)));
+            }
+        }
+    }
+    
+    Ok(Json(serde_json::json!({
+        "image_name": name,
+        "job_name": job_name,
+        "job_status": job_status,
+        "logs": logs,
+    })))
+}
+
+async fn create_image(
+    State(state): State<AppState>,
+    Json(req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use toygres_orchestrations::types::CreateImageInput;
+    
+    let name = req.get("name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("Missing image name".to_string()))?;
+    
+    let source_k8s_name = req.get("source_k8s_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("Missing source_k8s_name".to_string()))?;
+    
+    // Password is optional - if not provided, orchestration will fetch from K8s Secret
+    let password = req.get("password")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    let description = req.get("description")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    
+    let namespace = req.get("namespace")
+        .and_then(|v| v.as_str())
+        .unwrap_or("toygres");
+    
+    // Validate name
+    if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(AppError::BadRequest("Invalid image name. Use only alphanumeric characters, hyphens, and underscores.".to_string()));
+    }
+    
+    let orchestration_id = format!("create-image-{}-{}", name, uuid::Uuid::new_v4().to_string().split('-').next().unwrap());
+    
+    let input = CreateImageInput {
+        name: name.to_string(),
+        description,
+        source_k8s_name: source_k8s_name.to_string(),
+        source_password: password,
+        namespace: Some(namespace.to_string()),
+        orchestration_id: orchestration_id.clone(),
+    };
+    
+    state.duroxide_client
+        .start_orchestration(
+            &orchestration_id,
+            toygres_orchestrations::names::orchestrations::CREATE_IMAGE,
+            &serde_json::to_string(&input).unwrap(),
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to start orchestration: {}", e)))?;
+    
+    Ok(Json(serde_json::json!({
+        "image_name": name,
+        "orchestration_id": orchestration_id,
+        "message": "Image creation started"
+    })))
+}
+
+async fn create_image_from_instance(
+    State(state): State<AppState>,
+    Path(instance_name): Path<String>,
+    Json(req): Json<CreateImageRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use toygres_orchestrations::types::CreateImageInput;
+    
+    // Validate image name
+    if req.name.is_empty() || !req.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(AppError::BadRequest("Invalid image name. Use only alphanumeric characters, hyphens, and underscores.".to_string()));
+    }
+    
+    // Look up instance by user_name to get k8s_name
+    let pool = get_cms_pool().await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    
+    let row = sqlx::query(
+        "SELECT k8s_name, namespace FROM toygres_cms.instances WHERE user_name = $1 AND state = 'running'"
+    )
+    .bind(&instance_name)
+    .fetch_optional(&*pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to query instance: {}", e)))?;
+    
+    let (k8s_name, namespace): (String, String) = match row {
+        Some(row) => {
+            use sqlx::Row;
+            (row.get("k8s_name"), row.get("namespace"))
+        }
+        None => {
+            return Err(AppError::NotFound(format!("Instance '{}' not found or not running", instance_name)));
+        }
+    };
+    
+    let orchestration_id = format!("create-image-{}-{}", req.name, uuid::Uuid::new_v4().to_string().split('-').next().unwrap());
+    
+    let input = CreateImageInput {
+        name: req.name.clone(),
+        description: req.description,
+        source_k8s_name: k8s_name,
+        source_password: req.password,
+        namespace: Some(namespace),
+        orchestration_id: orchestration_id.clone(),
+    };
+    
+    state.duroxide_client
+        .start_orchestration(
+            &orchestration_id,
+            toygres_orchestrations::names::orchestrations::CREATE_IMAGE,
+            &serde_json::to_string(&input).unwrap(),
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to start orchestration: {}", e)))?;
+    
+    Ok(Json(serde_json::json!({
+        "image_name": req.name,
+        "source_instance": instance_name,
+        "orchestration_id": orchestration_id,
+        "message": "Image creation started"
+    })))
+}
+
+async fn delete_image(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // For now, just mark as deleted in CMS
+    // TODO: Implement DeleteImageOrchestration to also delete blob storage
+    let pool = get_cms_pool().await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+    
+    let result = sqlx::query(
+        r#"
+        UPDATE toygres_cms.images
+        SET state = 'deleted'::toygres_cms.image_state,
+            deleted_at = NOW(),
+            updated_at = NOW()
+        WHERE name = $1 AND state != 'deleted'
+        "#
+    )
+    .bind(&name)
+    .execute(&*pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to delete image: {}", e)))?;
+    
+    if result.rows_affected() == 0 {
+        return Err(AppError::NotFound(format!("Image '{}' not found", name)));
+    }
+    
+    Ok(Json(serde_json::json!({
+        "image_name": name,
+        "deleted": true,
+        "message": "Image deleted (blob storage cleanup pending)"
+    })))
+}
+
+async fn get_cms_pool() -> Result<std::sync::Arc<sqlx::PgPool>, String> {
+    use std::sync::OnceLock;
+    use std::sync::Arc;
+    
+    static POOL: OnceLock<Arc<sqlx::PgPool>> = OnceLock::new();
+    
+    if let Some(pool) = POOL.get() {
+        return Ok(pool.clone());
+    }
+    
+    let database_url = std::env::var("DATABASE_URL")
+        .map_err(|_| "DATABASE_URL not set".to_string())?;
+    
+    let pool = sqlx::PgPool::connect(&database_url)
+        .await
+        .map_err(|e| format!("Failed to connect to database: {}", e))?;
+    
+    let arc_pool = Arc::new(pool);
+    let _ = POOL.set(arc_pool.clone());
+    
+    Ok(arc_pool)
 }
 
 // ============================================================================

@@ -1,0 +1,26 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ name }}-config
+  namespace: {{ namespace }}
+  labels:
+    app: postgres
+    instance: {{ name }}
+data:
+  # Custom pg_hba.conf that allows replication connections from within the cluster
+  pg_hba.conf: |
+    # TYPE  DATABASE        USER            ADDRESS                 METHOD
+    # "local" is for Unix domain socket connections only
+    local   all             all                                     trust
+    # IPv4 local connections (trust for pg_durable background worker)
+    host    all             all             127.0.0.1/32            trust
+    # IPv6 local connections (trust for pg_durable background worker)
+    host    all             all             ::1/128                 trust
+    # Allow connections from within the Kubernetes cluster
+    host    all             all             10.0.0.0/8              scram-sha-256
+    host    all             all             172.16.0.0/12           scram-sha-256
+    host    all             all             192.168.0.0/16          scram-sha-256
+    # Allow replication connections from within the cluster
+    host    replication     all             10.0.0.0/8              scram-sha-256
+    host    replication     all             172.16.0.0/12           scram-sha-256
+    host    replication     all             192.168.0.0/16          scram-sha-256

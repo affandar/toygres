@@ -2,8 +2,8 @@
 
 use duroxide::runtime::registry::ActivityRegistry;
 use duroxide::OrchestrationRegistry;
-use crate::names::orchestrations;
 use crate::activities;
+use crate::orchestrations::{create_instance, delete_instance, instance_actor, system_pruner, create_image};
 
 /// Create an OrchestrationRegistry with all Toygres orchestrations
 ///
@@ -11,62 +11,79 @@ use crate::activities;
 ///
 /// ```rust,no_run
 /// use toygres_orchestrations::registry::create_orchestration_registry;
-/// 
+///
 /// let orchestrations = create_orchestration_registry();
 /// ```
 pub fn create_orchestration_registry() -> OrchestrationRegistry {
     OrchestrationRegistry::builder()
         .register_typed(
-            orchestrations::CREATE_INSTANCE,
-            crate::orchestrations::create_instance::create_instance_orchestration,
+            create_instance::NAME,
+            create_instance::create_instance_orchestration,
         )
         // v1.0.1: CMS updates now propagate errors (schema-qualified enums)
         .register_versioned_typed(
-            orchestrations::CREATE_INSTANCE,
+            create_instance::NAME,
             "1.0.1",
-            crate::orchestrations::create_instance::create_instance_1_0_1,
+            create_instance::create_instance_1_0_1,
+        )
+        // v1.0.2: Support restore from image (source_image_id)
+        .register_versioned_typed(
+            create_instance::NAME,
+            "1.0.2",
+            create_instance::create_instance_1_0_2,
         )
         .register_typed(
-            orchestrations::DELETE_INSTANCE,
-            crate::orchestrations::delete_instance::delete_instance_orchestration,
+            delete_instance::NAME,
+            delete_instance::delete_instance_orchestration,
         )
         // v1.0.1: CMS updates now propagate errors (schema-qualified enums)
         .register_versioned_typed(
-            orchestrations::DELETE_INSTANCE,
+            delete_instance::NAME,
             "1.0.1",
-            crate::orchestrations::delete_instance::delete_instance_1_0_1,
+            delete_instance::delete_instance_1_0_1,
+        )
+        // v1.0.2: Send InstanceDeleted signal to actor before cleanup
+        .register_versioned_typed(
+            delete_instance::NAME,
+            "1.0.2",
+            delete_instance::delete_instance_1_0_2,
         )
         .register_typed(
-            orchestrations::INSTANCE_ACTOR,
-            crate::orchestrations::instance_actor::instance_actor_orchestration,
+            instance_actor::NAME,
+            instance_actor::instance_actor_orchestration,
         )
         .register_typed(
-            orchestrations::SYSTEM_PRUNER,
-            crate::orchestrations::system_pruner::system_pruner_orchestration,
+            system_pruner::NAME,
+            system_pruner::system_pruner_orchestration,
         )
         // Register v1.0.1 of system pruner (2 min timer, keep 2 executions)
         .register_versioned_typed(
-            orchestrations::SYSTEM_PRUNER,
+            system_pruner::NAME,
             "1.0.1",
-            crate::orchestrations::system_pruner::system_pruner_1_0_1,
+            system_pruner::system_pruner_1_0_1,
         )
         // Register v1.0.2 of system pruner (5 min timer, keep 2 executions)
         .register_versioned_typed(
-            orchestrations::SYSTEM_PRUNER,
+            system_pruner::NAME,
             "1.0.2",
-            crate::orchestrations::system_pruner::system_pruner_1_0_2,
+            system_pruner::system_pruner_1_0_2,
         )
         // Register v1.0.3 of system pruner (uses system-prune-2, keep 3 executions)
         .register_versioned_typed(
-            orchestrations::SYSTEM_PRUNER,
+            system_pruner::NAME,
             "1.0.3",
-            crate::orchestrations::system_pruner::system_pruner_1_0_3,
+            system_pruner::system_pruner_1_0_3,
         )
         // Register v1.0.4 of system pruner (1 min timer, uses system-prune-2, keep 3 executions)
         .register_versioned_typed(
-            orchestrations::SYSTEM_PRUNER,
+            system_pruner::NAME,
             "1.0.4",
-            crate::orchestrations::system_pruner::system_pruner_1_0_4,
+            system_pruner::system_pruner_1_0_4,
+        )
+        // Image orchestrations
+        .register_typed(
+            create_image::NAME,
+            create_image::create_image_orchestration,
         )
         .build()
 }
@@ -88,6 +105,14 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::deploy_postgres::activity,
         )
         .register_typed(
+            activities::deploy_postgres_from_pvc::NAME,
+            activities::deploy_postgres_from_pvc::activity,
+        )
+        .register_typed(
+            activities::create_pvc::NAME,
+            activities::create_pvc::activity,
+        )
+        .register_typed(
             activities::delete_postgres::NAME,
             activities::delete_postgres::activity,
         )
@@ -106,6 +131,10 @@ pub fn create_activity_registry() -> ActivityRegistry {
         .register_typed(
             activities::set_password::NAME,
             activities::set_password::activity,
+        )
+        .register_typed(
+            activities::get_instance_password::NAME,
+            activities::get_instance_password::activity,
         )
         // CMS activities
         .register_typed(
@@ -144,6 +173,27 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::cms::delete_instance_record::NAME,
             activities::cms::delete_instance_record::activity,
         )
+        .register_typed(
+            activities::cms::image_ops::NAME,
+            activities::cms::image_ops::activity,
+        )
+        // Job activities (for backup/restore)
+        .register_typed(
+            activities::run_backup_job::NAME,
+            activities::run_backup_job::activity,
+        )
+        .register_typed(
+            activities::run_restore_job::NAME,
+            activities::run_restore_job::activity,
+        )
+        .register_typed(
+            activities::wait_for_job::NAME,
+            activities::wait_for_job::activity,
+        )
+        .register_typed(
+            activities::delete_job::NAME,
+            activities::delete_job::activity,
+        )
         // System activities
         .register_typed(
             activities::system_prune::NAME,
@@ -153,23 +203,28 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::system_prune_2::NAME,
             activities::system_prune_2::activity,
         )
+        // Signaling activities
+        .register_typed(
+            activities::send_external_event::NAME,
+            activities::send_external_event::activity,
+        )
         .build()
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_orchestration_registry_can_be_created() {
         let registry = create_orchestration_registry();
         // Verify system pruner is registered
         assert!(
-            registry.resolve_handler(crate::names::orchestrations::SYSTEM_PRUNER).is_some(),
+            registry.resolve_handler(system_pruner::NAME).is_some(),
             "SYSTEM_PRUNER should be registered in the orchestration registry"
         );
     }
-    
+
     #[test]
     fn test_activity_registry_can_be_created() {
         let _registry = create_activity_registry();

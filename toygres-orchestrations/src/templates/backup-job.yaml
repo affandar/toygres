@@ -1,0 +1,111 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ job_name }}
+  namespace: {{ namespace }}
+  labels:
+    app.kubernetes.io/name: toygres
+    app.kubernetes.io/component: backup
+    toygres.io/image: "{{ image_name }}"
+spec:
+  ttlSecondsAfterFinished: 3600
+  backoffLimit: 2
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: toygres
+        app.kubernetes.io/component: backup
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: toygres-server
+      restartPolicy: Never
+      containers:
+      - name: backup
+        image: postgres:{{ postgres_version }}
+        env:
+        - name: PGHOST
+          value: "{{ source_instance_name }}-svc"
+        - name: PGUSER
+          value: "postgres"
+        - name: PGPASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: {{ secret_name }}
+              key: POSTGRES_PASSWORD
+        - name: BLOB_STORAGE_ACCOUNT
+          value: "{{ blob_storage_account }}"
+        - name: BLOB_CONTAINER
+          value: "{{ blob_container }}"
+        - name: BLOB_PATH
+          value: "{{ blob_path }}"
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          
+          echo "=== Installing azcopy ==="
+          apt-get update -qq && apt-get install -y -qq curl ca-certificates > /dev/null
+          curl -sL https://aka.ms/downloadazcopy-v10-linux | tar xz --strip-components=1 -C /usr/local/bin
+          
+          echo "=== Starting pg_basebackup ==="
+          echo "Source: $PGHOST"
+          pg_basebackup -h $PGHOST -U $PGUSER -D /backup -Ft -z -X stream -P
+          
+          echo ""
+          echo "=== Backup files ==="
+          ls -lh /backup/
+          
+          echo ""
+          echo "=== Calculating checksums ==="
+          sha256sum /backup/base.tar.gz /backup/pg_wal.tar.gz | tee /backup/checksum.txt
+
+          BASE_SIZE=$(stat -c%s /backup/base.tar.gz)
+          WAL_SIZE=$(stat -c%s /backup/pg_wal.tar.gz)
+          BACKUP_SIZE=$((BASE_SIZE + WAL_SIZE))
+          echo "Base size: $BASE_SIZE bytes"
+          echo "WAL size: $WAL_SIZE bytes"
+          echo "Total backup size: $BACKUP_SIZE bytes"
+
+          echo ""
+          echo "=== Uploading to Azure Blob Storage ==="
+          echo "Account: $BLOB_STORAGE_ACCOUNT"
+          echo "Container: $BLOB_CONTAINER"
+          echo "Path: $BLOB_PATH"
+
+          # Use workload identity for authentication (must explicitly specify login type)
+          azcopy login --login-type=workload
+
+          BLOB_URL="https://${BLOB_STORAGE_ACCOUNT}.blob.core.windows.net/${BLOB_CONTAINER}/${BLOB_PATH}"
+
+          azcopy copy "/backup/base.tar.gz" "${BLOB_URL}/base.tar.gz" --overwrite=true
+          azcopy copy "/backup/pg_wal.tar.gz" "${BLOB_URL}/pg_wal.tar.gz" --overwrite=true
+          azcopy copy "/backup/checksum.txt" "${BLOB_URL}/checksum.txt" --overwrite=true
+          
+          # Write metadata
+          cat > /backup/metadata.json << EOF
+          {
+            "source_instance": "$PGHOST",
+            "backup_time": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "backup_size_bytes": $BACKUP_SIZE,
+            "postgres_version": "{{ postgres_version }}"
+          }
+          EOF
+          azcopy copy "/backup/metadata.json" "${BLOB_URL}/metadata.json" --overwrite=true
+          
+          echo ""
+          echo "=== Backup complete! ==="
+        volumeMounts:
+        - name: backup-vol
+          mountPath: /backup
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1"
+      volumes:
+      - name: backup-vol
+        emptyDir:
+          sizeLimit: 100Gi

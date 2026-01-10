@@ -17,6 +17,7 @@ spec:
       labels:
         app.kubernetes.io/name: toygres
         app.kubernetes.io/component: server
+        azure.workload.identity/use: "true"
     spec:
       serviceAccountName: toygres-server
       containers:

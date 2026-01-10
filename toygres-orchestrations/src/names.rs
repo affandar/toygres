@@ -1,50 +1,13 @@
 //! Name constants for Toygres orchestrations
 //!
-//! Following the Duroxide naming convention: {crate-name}::{type}::{name}
+//! Re-exports NAME constants from orchestration modules for backward compatibility.
+//! Prefer using the NAME constant directly from the orchestration module for better IDE navigation.
 
-/// Orchestration names
+/// Orchestration names - re-exported from orchestration modules
 pub mod orchestrations {
-    /// Create a new PostgreSQL instance
-    /// 
-    /// **Input:** [`crate::types::CreateInstanceInput`]  
-    /// **Output:** [`crate::types::CreateInstanceOutput`]  
-    /// **Activities used:**
-    /// - [`toygres_activities::names::activities::DEPLOY_POSTGRES`]
-    /// - [`toygres_activities::names::activities::WAIT_FOR_READY`]
-    /// - [`toygres_activities::names::activities::GET_CONNECTION_STRINGS`]
-    /// - [`toygres_activities::names::activities::TEST_CONNECTION`]
-    /// **Duration:** ~30-60 seconds
-    pub const CREATE_INSTANCE: &str = "toygres-orchestrations::orchestration::create-instance";
-    
-    /// Delete a PostgreSQL instance
-    /// 
-    /// **Input:** [`crate::types::DeleteInstanceInput`]  
-    /// **Output:** [`crate::types::DeleteInstanceOutput`]  
-    /// **Activities used:**
-    /// - [`toygres_activities::names::activities::DELETE_POSTGRES`]
-    /// **Duration:** ~10 seconds
-    /// **Note:** Cancels instance actor orchestration before deletion
-    pub const DELETE_INSTANCE: &str = "toygres-orchestrations::orchestration::delete-instance";
-    
-    /// Instance Actor - Continuous per-instance operations
-    ///
-    /// **Input:** [`crate::types::InstanceActorInput`]
-    /// **Output:** Never completes (continues-as-new forever)
-    /// **Activities used:**
-    /// - Health monitoring every 30 seconds
-    /// - Future: Auto-scaling, backups, maintenance
-    /// **Duration:** Runs until instance deleted
-    /// **Pattern:** Detached orchestration with continue-as-new
-    pub const INSTANCE_ACTOR: &str = "toygres-orchestrations::orchestration::instance-actor";
-
-    /// System Pruner - Automatic maintenance orchestration
-    ///
-    /// **Input:** [`crate::activity_types::SystemPruneInput`]
-    /// **Output:** Never completes (continues-as-new forever)
-    /// **Activities used:**
-    /// - system-prune: Deletes old terminal instances, prunes executions
-    /// **Duration:** Runs forever (every 1 hour)
-    /// **Pattern:** Singleton orchestration with continue-as-new
-    pub const SYSTEM_PRUNER: &str = "toygres-orchestrations::orchestration::system-pruner";
+    pub use crate::orchestrations::create_instance::NAME as CREATE_INSTANCE;
+    pub use crate::orchestrations::delete_instance::NAME as DELETE_INSTANCE;
+    pub use crate::orchestrations::instance_actor::NAME as INSTANCE_ACTOR;
+    pub use crate::orchestrations::system_pruner::NAME as SYSTEM_PRUNER;
+    pub use crate::orchestrations::create_image::NAME as CREATE_IMAGE;
 }
-

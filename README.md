@@ -1,5 +1,16 @@
 # Toygres
 
+> **WARNING: This is a toy project for learning and experimentation only.**
+>
+> This project does NOT follow security best practices and should NOT be:
+> - Deployed to production environments
+> - Used to store real data or actual secrets
+> - Considered secure or production-ready
+>
+> Known security issues include: hardcoded session tokens, authentication bypasses,
+> lack of encryption, overly permissive RBAC, and no network isolation.
+> See the security audit for details.
+
 A Rust-based toy control plane for hosting PostgreSQL containers as a service on Azure Kubernetes Service (AKS).
 
 ## Features

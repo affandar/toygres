@@ -304,25 +304,39 @@ if let Err(err) = ctx
 
 Running orchestrations replay their history - changing code breaks replay.
 
+### Adding a New Version (Recommended Pattern)
+
+When adding a new version, follow this workflow for cleaner git diffs:
+
+1. **Copy the current latest version** to a new function with the OLD version number
+2. **Make your changes** in the existing function name and bump its version
+3. Register both in the registry
+
+**Why?** This preserves history per version and makes git diffs show only the actual changes,
+rather than showing the new version as entirely new code.
+
 ```rust
-// Original version (v1.0.0)
-pub async fn my_orchestration(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
-    // Original logic - DO NOT MODIFY
+// STEP 1: Copy current implementation to preserve v1.0.1
+pub async fn my_orchestration_1_0_1(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
+    ctx.trace_info("[v1.0.1] Original logic");
+    // Exact copy of previous implementation - DO NOT MODIFY
 }
 
-// New version - create separate function
-pub async fn my_orchestration_1_0_1(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
-    ctx.trace_info("[v1.0.1] Starting with new logic");
-    // Updated logic
+// STEP 2: Update the main function with new version
+// This is now v1.0.2 - git diff will clearly show what changed
+pub async fn my_orchestration_1_0_2(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
+    ctx.trace_info("[v1.0.2] Updated logic");
+    // Your new changes here - git diff shows only the delta
 }
 ```
 
-Register both versions:
+Register all versions:
 
 ```rust
 OrchestrationRegistry::builder()
-    .register_typed(NAME, my_orchestration)  // v1.0.0 (default)
+    .register_typed(NAME, my_orchestration)  // v1.0.0 (original)
     .register_versioned_typed(NAME, "1.0.1", my_orchestration_1_0_1)
+    .register_versioned_typed(NAME, "1.0.2", my_orchestration_1_0_2)  // Latest
     .build()
 ```
 
@@ -459,11 +473,11 @@ async fn update_status(ctx: &OrchestrationContext, name: &str, status: &str) {
 ## Client API
 
 ```rust
-// Start orchestration
+// Start orchestration (uses latest registered version - PREFERRED)
 client.start_orchestration(instance_id, orchestration_name, input).await?;
 
-// Start specific version
-client.start_orchestration_with_version(instance_id, orchestration_name, "1.0.1", input).await?;
+// Start specific version (only when you need to pin to older version)
+client.start_orchestration_versioned(instance_id, orchestration_name, "1.0.1", input).await?;
 
 // Cancel orchestration
 client.cancel_instance(instance_id, "reason").await?;
@@ -474,3 +488,17 @@ client.send_signal(instance_id, "SignalName", payload).await?;
 // Get status
 let info = client.get_instance_info(instance_id).await?;
 ```
+
+### Version Selection
+
+**Default behavior:** `start_orchestration` automatically uses the latest registered version.
+
+**Use `start_orchestration_versioned` only when:**
+- You need to pin to a specific older version for compatibility
+- Testing a specific version in isolation
+
+**Version numbering convention:**
+- `1.0.0` - Initial version
+- `1.0.1` - Bug fixes, minor improvements
+- `1.0.2` - Additional bug fixes, new optional features
+- Major version changes for breaking input/output changes

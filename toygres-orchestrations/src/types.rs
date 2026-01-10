@@ -30,6 +30,9 @@ pub struct CreateInstanceInput {
     /// Image type: stock PostgreSQL or pg_durable
     #[serde(default)]
     pub image_type: ImageType,
+    /// Source image ID to restore from (optional - if set, creates instance from backup)
+    #[serde(default)]
+    pub source_image_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
@@ -90,4 +93,59 @@ pub struct InstanceActorInput {
 
 // Output: Unit type, continues forever or exits with error
 // This orchestration uses continue-as-new and never completes normally
+
+// ============================================================================
+// Create Image Orchestration
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CreateImageInput {
+    /// User-friendly image name
+    pub name: String,
+    /// Optional description
+    pub description: Option<String>,
+    /// Source instance K8s name (with GUID)
+    pub source_k8s_name: String,
+    /// Source instance password (optional - fetched from K8s Secret if not provided)
+    #[serde(default)]
+    pub source_password: Option<String>,
+    /// Kubernetes namespace of source instance
+    pub namespace: Option<String>,
+    /// Unique orchestration/request identifier
+    pub orchestration_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CreateImageOutput {
+    /// Image name
+    pub image_name: String,
+    /// Image ID (UUID)
+    pub image_id: String,
+    /// Blob storage path
+    pub blob_path: String,
+    /// Backup size in bytes
+    pub backup_size_bytes: Option<i64>,
+    /// Time taken (seconds)
+    pub creation_time_seconds: u64,
+}
+
+// ============================================================================
+// Delete Image Orchestration
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeleteImageInput {
+    /// Image name
+    pub name: String,
+    /// Unique orchestration/request identifier
+    pub orchestration_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeleteImageOutput {
+    /// Image name
+    pub image_name: String,
+    /// Whether image was deleted
+    pub deleted: bool,
+}
 

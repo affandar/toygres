@@ -21,7 +21,9 @@ pub async fn activity(
 
     let record = sqlx::query(
         r#"
-        SELECT id, user_name, k8s_name, namespace, state::text as state, dns_name, instance_actor_orchestration_id
+        SELECT id, user_name, k8s_name, namespace, state::text as state, dns_name, 
+               instance_actor_orchestration_id, postgres_version, storage_size_gb,
+               image_type::text as image_type
         FROM toygres_cms.instances
         WHERE k8s_name = $1
         "#
@@ -39,6 +41,9 @@ pub async fn activity(
             namespace: row.try_get("namespace").map_err(|e| format!("Failed to read namespace: {}", e))?,
             state: row.try_get("state").map_err(|e| format!("Failed to read state: {}", e))?,
             dns_name: row.try_get("dns_name").ok(),
+            postgres_version: row.try_get("postgres_version").unwrap_or_else(|_| "16".to_string()),
+            storage_size_gb: row.try_get("storage_size_gb").unwrap_or(10),
+            image_type: row.try_get("image_type").unwrap_or_else(|_| "stock".to_string()),
         };
         let instance_actor_orchestration_id: Option<String> = row.try_get("instance_actor_orchestration_id").ok();
         

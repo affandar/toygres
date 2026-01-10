@@ -9,7 +9,8 @@ import {
   Users,
   GitBranch,
   FileCode,
-  Scissors
+  Scissors,
+  HardDrive
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -30,6 +31,11 @@ const navigation: NavItem[] = [
     title: 'DB Instances',
     href: '/instances',
     icon: Database,
+  },
+  {
+    title: 'Backup Images',
+    href: '/images',
+    icon: HardDrive,
   },
   {
     title: 'System',

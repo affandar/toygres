@@ -2,6 +2,33 @@ export type ImageType = 'stock' | 'pg_durable';
 
 export type InstanceState = 'creating' | 'running' | 'stopped' | 'deleting' | 'deleted' | 'failed';
 
+export type ImageState = 'creating' | 'ready' | 'failed' | 'deleting' | 'deleted';
+
+export interface Image {
+  id: string;
+  name: string;
+  description: string | null;
+  source_k8s_name: string;
+  state: ImageState;
+  storage_size_gb: number;
+  postgres_version: string;
+  image_type: string;
+  backup_size_bytes: number | null;
+  created_at: string;
+  ready_at: string | null;
+}
+
+export interface ImageDetail extends Image {
+  source_instance_id: string | null;
+  source_namespace: string;
+  blob_storage_url: string;
+  blob_container: string;
+  blob_path: string;
+  backup_checksum: string | null;
+  error_message: string | null;
+  orchestration_id: string;
+}
+
 export interface Instance {
   user_name: string;
   k8s_name: string;

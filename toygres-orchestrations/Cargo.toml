@@ -29,6 +29,9 @@ serde_yaml = "0.9"
 # Templating
 tera = "1.19"
 
+# URL parsing
+url = "2.5"
+
 # One-time initialization helpers
 once_cell = "1.19"
 

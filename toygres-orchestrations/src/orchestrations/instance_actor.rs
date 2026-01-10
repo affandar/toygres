@@ -1,19 +1,22 @@
 /// Instance Actor Orchestration
-/// 
+///
 /// A continuously-running orchestration that performs per-instance operations:
 /// - Health monitoring (every 30 seconds)
 /// - Future: Auto-scaling, backups, maintenance tasks
-/// 
+///
 /// This orchestration uses the continue-as-new pattern to prevent unbounded history growth.
 /// Each iteration:
 /// 1. Performs health check
 /// 2. Records results in CMS
 /// 3. Waits 30 seconds
 /// 4. Continues-as-new (restarts with fresh history)
-/// 
+///
 /// The orchestration exits gracefully when it detects the instance is deleted/deleting.
 
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
+
+/// Orchestration name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::orchestration::instance-actor";
 use std::time::Duration;
 
 use crate::activities::{self, cms};
