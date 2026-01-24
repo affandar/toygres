@@ -52,7 +52,6 @@ pub async fn create_instance_orchestration(
             cms::create_instance_record::NAME,
             &cms_input,
         )
-        .into_activity_typed::<CreateInstanceRecordOutput>()
         .await?;
     
     match create_instance_impl(&ctx, &input, &namespace, &postgres_version, storage_size_gb, use_load_balancer, &input.image_type).await {
@@ -121,7 +120,6 @@ async fn create_instance_impl(
     
     let _deploy_output = ctx
         .schedule_activity_typed::<DeployPostgresInput, DeployPostgresOutput>(activities::deploy_postgres::NAME, &deploy_input)
-        .into_activity_typed::<DeployPostgresOutput>()
         .await?;
     
     ctx.trace_info("PostgreSQL resources created");
@@ -140,7 +138,6 @@ async fn create_instance_impl(
         
         let wait_output = ctx
             .schedule_activity_typed::<WaitForReadyInput, WaitForReadyOutput>(activities::wait_for_ready::NAME, &wait_input)
-            .into_activity_typed::<WaitForReadyOutput>()
             .await
             .map_err(|e| format!("Failed to check pod status: {}", e))?;
         
@@ -165,7 +162,7 @@ async fn create_instance_impl(
                                wait_output.pod_phase, attempt, max_attempts));
         
         // Wait 5 seconds using Duroxide timer (deterministic)
-        ctx.schedule_timer(Duration::from_secs(5)).into_timer().await;
+        ctx.schedule_timer(Duration::from_secs(5)).await;
     }
     
     let end_time = ctx.utcnow().await
@@ -283,7 +280,6 @@ async fn cleanup_on_failure(
             delete_instance::NAME,
             &delete_input
         )
-        .into_sub_orchestration_typed::<crate::types::DeleteInstanceOutput>()
         .await
         .map_err(|e| format!("Cleanup sub-orchestration failed: {}", e))?;
     
@@ -305,7 +301,6 @@ async fn update_cms_state(
             cms::update_instance_state::NAME,
             &update_input,
         )
-        .into_activity_typed::<UpdateInstanceStateOutput>()
         .await
     {
         ctx.trace_warn(format!("Failed to update CMS state: {}", err));
@@ -348,7 +343,6 @@ async fn start_instance_actor(
                 instance_actor_orchestration_id: actor_id,
             },
         )
-        .into_activity_typed::<RecordInstanceActorOutput>()
         .await
     {
         ctx.trace_warn(format!("Failed to record instance actor ID: {}", err));
@@ -378,7 +372,6 @@ async fn mark_instance_failed(
                 k8s_name: k8s_name.to_string(),
             },
         )
-        .into_activity_typed::<FreeDnsNameOutput>()
         .await
     {
         ctx.trace_warn(format!("Failed to free DNS name: {}", err));
@@ -469,7 +462,6 @@ pub async fn create_instance_1_0_1(
             cms::create_instance_record::NAME,
             &cms_input,
         )
-        .into_activity_typed::<CreateInstanceRecordOutput>()
         .await?;
     
     match create_instance_impl(&ctx, &input, &namespace, &postgres_version, storage_size_gb, use_load_balancer, &input.image_type).await {
@@ -518,7 +510,6 @@ async fn update_cms_state_v1_0_1(
             cms::update_instance_state::NAME,
             &update_input,
         )
-        .into_activity_typed::<UpdateInstanceStateOutput>()
         .await
         .map_err(|e| format!("Failed to update CMS state: {}", e))?;
     Ok(())
@@ -550,7 +541,6 @@ async fn mark_instance_failed_v1_0_1(
                 k8s_name: k8s_name.to_string(),
             },
         )
-        .into_activity_typed::<FreeDnsNameOutput>()
         .await
     {
         ctx.trace_warn(format!("[v1.0.1] Failed to free DNS name: {}", err));
@@ -601,7 +591,6 @@ pub async fn create_instance_1_0_2(
                 cms::image_ops::NAME,
                 &ImageOperation::GetById { id: image_uuid },
             )
-            .into_activity_typed::<ImageOperationResult>()
             .await?;
 
         match image_result {
@@ -644,7 +633,6 @@ pub async fn create_instance_1_0_2(
             cms::create_instance_record::NAME,
             &cms_input,
         )
-        .into_activity_typed::<CreateInstanceRecordOutput>()
         .await?;
 
     // Check if we're restoring from an image
@@ -720,7 +708,6 @@ async fn create_instance_from_image_impl(
             cms::image_ops::NAME,
             &ImageOperation::GetById { id: image_uuid },
         )
-        .into_activity_typed::<ImageOperationResult>()
         .await?;
     
     let image = match image_result {
@@ -754,7 +741,6 @@ async fn create_instance_from_image_impl(
             cms::image_ops::NAME,
             &ImageOperation::GetSourcePassword { id: image_uuid },
         )
-        .into_activity_typed::<ImageOperationResult>()
         .await?;
 
     let effective_password = match password_result {
@@ -789,7 +775,6 @@ async fn create_instance_from_image_impl(
             activities::create_pvc::NAME,
             &pvc_input,
         )
-        .into_activity_typed::<CreatePvcOutput>()
         .await?;
 
     // Use the actual PVC name returned by the activity (includes -pvc suffix)
@@ -815,7 +800,6 @@ async fn create_instance_from_image_impl(
         activities::run_restore_job::NAME,
         &restore_input,
     )
-    .into_activity_typed::<RunRestoreJobOutput>()
     .await?;
     
     ctx.trace_info("[v1.0.2] Restore job created, waiting for completion");
@@ -831,7 +815,6 @@ async fn create_instance_from_image_impl(
                     namespace: namespace.to_string(),
                 },
             )
-            .into_activity_typed::<WaitForJobOutput>()
             .await
             .map_err(|e| format!("Failed to check restore job status: {}", e))?;
         
@@ -847,7 +830,7 @@ async fn create_instance_from_image_impl(
         }
         
         ctx.trace_info(format!("[v1.0.2] Restore job still running (attempt {}/{})", attempt, max_job_attempts));
-        ctx.schedule_timer(Duration::from_secs(10)).into_timer().await;
+        ctx.schedule_timer(Duration::from_secs(10)).await;
     }
     
     // Cleanup the restore job
@@ -860,7 +843,6 @@ async fn create_instance_from_image_impl(
                 delete_secret: false, // Restore jobs don't have secrets
             },
         )
-        .into_activity_typed::<DeleteJobOutput>()
         .await;
     
     // Step 5: Deploy StatefulSet and Service using existing PVC
@@ -889,7 +871,6 @@ async fn create_instance_from_image_impl(
         activities::deploy_postgres_from_pvc::NAME,
         &deploy_input,
     )
-    .into_activity_typed::<DeployPostgresFromPvcOutput>()
     .await?;
     
     ctx.trace_info("[v1.0.2] StatefulSet and Service created");
@@ -910,7 +891,6 @@ async fn create_instance_from_image_impl(
                 activities::wait_for_ready::NAME,
                 &wait_input,
             )
-            .into_activity_typed::<WaitForReadyOutput>()
             .await
             .map_err(|e| format!("Failed to check pod status: {}", e))?;
         
@@ -929,7 +909,7 @@ async fn create_instance_from_image_impl(
         }
         
         ctx.trace_info(format!("[v1.0.2] Pod in phase '{}' (attempt {}/{})", wait_output.pod_phase, attempt, max_attempts));
-        ctx.schedule_timer(Duration::from_secs(5)).into_timer().await;
+        ctx.schedule_timer(Duration::from_secs(5)).await;
     }
     
     let end_time = ctx.utcnow().await

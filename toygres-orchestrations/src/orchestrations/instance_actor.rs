@@ -81,7 +81,7 @@ pub async fn instance_actor_orchestration(
             ctx.trace_warn("No connection string available yet, skipping health check");
             
             // Still continue-as-new to try again later
-            ctx.schedule_timer(Duration::from_secs(30)).into_timer().await;
+            ctx.schedule_timer(Duration::from_secs(30)).await;
             ctx.trace_info("Restarting instance actor with continue-as-new");
             
             let input_json = serde_json::to_string(&input)
@@ -142,7 +142,6 @@ pub async fn instance_actor_orchestration(
                 error_message,
             },
         )
-        .into_activity_typed::<RecordHealthCheckOutput>()
         .await
         .map_err(|e| format!("Failed to record health check: {}", e))?;
     
@@ -155,7 +154,6 @@ pub async fn instance_actor_orchestration(
                 health_status: status.to_string(),
             },
         )
-        .into_activity_typed::<UpdateInstanceHealthOutput>()
         .await
         .map_err(|e| format!("Failed to update instance health: {}", e))?;
     
@@ -165,12 +163,16 @@ pub async fn instance_actor_orchestration(
     let timer = ctx.schedule_timer(Duration::from_secs(30));
     let deletion_signal = ctx.schedule_wait("InstanceDeleted");
     
-    let (winner_index, _) = ctx.select2(timer, deletion_signal).await;
-    
-    if winner_index == 1 {
-        // Deletion signal received - exit gracefully
-        ctx.trace_info("Received InstanceDeleted signal, stopping instance actor gracefully");
-        return Ok(());
+    use duroxide::Either2;
+    match ctx.select2(timer, deletion_signal).await {
+        Either2::First(()) => {
+            // Timer fired - continue to continue_as_new logic below
+        }
+        Either2::Second(_) => {
+            // Deletion signal received - exit gracefully
+            ctx.trace_info("Received InstanceDeleted signal, stopping instance actor gracefully");
+            return Ok(());
+        }
     }
     
     // Timer fired - continue as new for next health check cycle

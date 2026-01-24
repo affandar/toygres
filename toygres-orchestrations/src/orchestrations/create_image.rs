@@ -302,7 +302,7 @@ async fn run_backup(
     
     loop {
         // Wait before checking
-        ctx.schedule_timer(poll_interval).into_timer().await;
+        ctx.schedule_timer(poll_interval).await;
         elapsed += poll_interval;
         
         let status: WaitForJobOutput = ctx
@@ -313,7 +313,6 @@ async fn run_backup(
                     namespace: namespace.to_string(),
                 },
             )
-            .into_activity_typed()
             .await?;
         
         if status.succeeded {
@@ -378,6 +377,5 @@ async fn cleanup_job(
                 delete_secret: true,
             },
         )
-        .into_activity_typed::<DeleteJobOutput>()
         .await;
 }

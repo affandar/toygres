@@ -1,7 +1,7 @@
 -- 0001_initial_schema.sql
 -- Description: Initial CMS schema for Toygres control plane
 
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- Note: gen_random_uuid() is built-in since PostgreSQL 13, no extension needed
 
 CREATE SCHEMA IF NOT EXISTS toygres_duroxide;
 CREATE SCHEMA IF NOT EXISTS toygres_cms;

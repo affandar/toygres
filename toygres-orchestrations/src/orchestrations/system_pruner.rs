@@ -32,7 +32,6 @@ pub async fn system_pruner_orchestration(
             crate::activities::system_prune::NAME,
             &input,
         )
-        .into_activity_typed::<SystemPruneOutput>()
         .await
         .map_err(|e| format!("System prune activity failed: {}", e))?;
 
@@ -46,7 +45,7 @@ pub async fn system_pruner_orchestration(
 
     // Step 2: Wait 1 minute before next iteration
     ctx.trace_info("Waiting 1 minute before next prune cycle");
-    ctx.schedule_timer(Duration::from_secs(60)).into_timer().await;
+    ctx.schedule_timer(Duration::from_secs(60)).await;
 
     // Step 3: Continue as new for next iteration
     let next_input = SystemPruneInput {
@@ -85,7 +84,6 @@ pub async fn system_pruner_1_0_1(
             crate::activities::system_prune::NAME,
             &input,
         )
-        .into_activity_typed::<SystemPruneOutput>()
         .await
         .map_err(|e| format!("System prune activity failed: {}", e))?;
 
@@ -99,7 +97,7 @@ pub async fn system_pruner_1_0_1(
 
     // Step 2: Wait 2 minutes before next iteration (v1.0.1: increased from 1 minute)
     ctx.trace_info("[v1.0.1] Waiting 2 minutes before next prune cycle");
-    ctx.schedule_timer(Duration::from_secs(120)).into_timer().await;
+    ctx.schedule_timer(Duration::from_secs(120)).await;
 
     // Step 3: Continue as new for next iteration
     // Note: keep_executions is 2 in v1.0.1 (vs 1 in v1.0.0)
@@ -138,7 +136,6 @@ pub async fn system_pruner_1_0_2(
             crate::activities::system_prune::NAME,
             &input,
         )
-        .into_activity_typed::<SystemPruneOutput>()
         .await
         .map_err(|e| format!("System prune activity failed: {}", e))?;
 
@@ -152,7 +149,7 @@ pub async fn system_pruner_1_0_2(
 
     // Step 2: Wait 5 minutes before next iteration (v1.0.2: increased from 2 minutes)
     ctx.trace_info("[v1.0.2] Waiting 5 minutes before next prune cycle");
-    ctx.schedule_timer(Duration::from_secs(300)).into_timer().await;
+    ctx.schedule_timer(Duration::from_secs(300)).await;
 
     // Step 3: Continue as new for next iteration
     let next_input = SystemPruneInput {
@@ -199,7 +196,6 @@ pub async fn system_pruner_1_0_3(
             crate::activities::system_prune_2::NAME,
             &prune_input,
         )
-        .into_activity_typed::<SystemPruneOutput>()
         .await
         .map_err(|e| format!("System prune activity failed: {}", e))?;
 
@@ -213,7 +209,7 @@ pub async fn system_pruner_1_0_3(
 
     // Wait 5 minutes before next iteration (same as v1.0.2)
     ctx.trace_info("[v1.0.3] Waiting 5 minutes before next prune cycle");
-    ctx.schedule_timer(Duration::from_secs(300)).into_timer().await;
+    ctx.schedule_timer(Duration::from_secs(300)).await;
 
     // Continue as new for next iteration
     let next_input = SystemPruneInput {
@@ -260,7 +256,6 @@ pub async fn system_pruner_1_0_4(
             crate::activities::system_prune_2::NAME,
             &prune_input,
         )
-        .into_activity_typed::<SystemPruneOutput>()
         .await
         .map_err(|e| format!("System prune activity failed: {}", e))?;
 
@@ -274,7 +269,7 @@ pub async fn system_pruner_1_0_4(
 
     // Wait 1 minute before next iteration (v1.0.4: reduced from 5 minutes)
     ctx.trace_info("[v1.0.4] Waiting 1 minute before next prune cycle");
-    ctx.schedule_timer(Duration::from_secs(60)).into_timer().await;
+    ctx.schedule_timer(Duration::from_secs(60)).await;
 
     // Continue as new for next iteration
     let next_input = SystemPruneInput {

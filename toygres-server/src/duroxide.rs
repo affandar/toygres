@@ -32,7 +32,7 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
     }
     
     // Create activity and orchestration registries
-    let activities = Arc::new(create_activity_registry());
+    let activities = create_activity_registry();
     let orchestrations = create_orchestration_registry();
 
     // Log all registered orchestrations

@@ -126,7 +126,6 @@ async fn update_cms_state(
             cms::update_instance_state::NAME,
             &update_input,
         )
-        .into_activity_typed::<UpdateInstanceStateOutput>()
         .await
     {
         ctx.trace_warn(format!("Failed to update CMS state: {}", err));
@@ -144,7 +143,6 @@ async fn free_dns_name(
                 k8s_name: k8s_name.to_string(),
             },
         )
-        .into_activity_typed::<FreeDnsNameOutput>()
         .await
     {
         ctx.trace_warn(format!("Failed to free DNS name: {}", err));
@@ -164,7 +162,6 @@ async fn delete_cms_record(
                 k8s_name: k8s_name.to_string(),
             },
         )
-        .into_activity_typed::<DeleteInstanceRecordOutput>()
         .await
     {
         ctx.trace_warn(format!("Failed to delete CMS record: {}", err));
@@ -325,7 +322,6 @@ async fn update_cms_state_v1_0_1(
             cms::update_instance_state::NAME,
             &update_input,
         )
-        .into_activity_typed::<UpdateInstanceStateOutput>()
         .await
         .map_err(|e| format!("Failed to update CMS state: {}", e))?;
     Ok(())
@@ -407,7 +403,6 @@ pub async fn delete_instance_1_0_2(
                 activities::send_external_event::NAME,
                 &signal_input,
             )
-            .into_activity_typed::<SendExternalEventOutput>()
             .await;
 
         match signal_result {
