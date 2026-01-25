@@ -15,7 +15,7 @@ license = "MIT"
 [workspace.dependencies]
 # Duroxide framework (from crates.io)
 duroxide = { version = "=0.1.14", features = ["observability"] }
-duroxide-pg = { version = "=0.1.15" }
+duroxide-pg = { version = "=0.1.16" }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
