@@ -98,7 +98,7 @@ async fn create_instance_impl(
     use_load_balancer: bool,
     image_type: &ImageType,
 ) -> Result<CreateInstanceOutput, String> {
-    let start_time = ctx.utcnow().await
+    let start_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
     // The user's desired password - this is what we want the final password to be
@@ -143,7 +143,7 @@ async fn create_instance_impl(
         
         // Check if pod is ready
         if wait_output.is_ready {
-            let end_time = ctx.utcnow().await
+            let end_time = ctx.utc_now().await
                 .map_err(|e| format!("Failed to get end time: {}", e))?;
             let elapsed = end_time.duration_since(start_time)
                 .map_err(|e| format!("Failed to calculate duration: {}", e))?
@@ -165,7 +165,7 @@ async fn create_instance_impl(
         ctx.schedule_timer(Duration::from_secs(5)).await;
     }
     
-    let end_time = ctx.utcnow().await
+    let end_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get end time: {}", e))?;
     let deployment_time = end_time.duration_since(start_time)
         .map_err(|e| format!("Failed to calculate duration: {}", e))?
@@ -695,7 +695,7 @@ async fn create_instance_from_image_impl(
     use_load_balancer: bool,
     image_id: &str,
 ) -> Result<CreateInstanceOutput, String> {
-    let start_time = ctx.utcnow().await
+    let start_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
     // Step 1: Fetch image details from CMS
@@ -895,7 +895,7 @@ async fn create_instance_from_image_impl(
             .map_err(|e| format!("Failed to check pod status: {}", e))?;
         
         if wait_output.is_ready {
-            let end_time = ctx.utcnow().await
+            let end_time = ctx.utc_now().await
                 .map_err(|e| format!("Failed to get end time: {}", e))?;
             let elapsed = end_time.duration_since(start_time)
                 .map_err(|e| format!("Failed to calculate duration: {}", e))?
@@ -912,7 +912,7 @@ async fn create_instance_from_image_impl(
         ctx.schedule_timer(Duration::from_secs(5)).await;
     }
     
-    let end_time = ctx.utcnow().await
+    let end_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get end time: {}", e))?;
     let deployment_time = end_time.duration_since(start_time)
         .map_err(|e| format!("Failed to calculate duration: {}", e))?

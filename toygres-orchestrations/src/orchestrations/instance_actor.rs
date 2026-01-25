@@ -94,7 +94,7 @@ pub async fn instance_actor_orchestration(
     
     // Step 3: Test connection and measure response time
     // Use retry with linear backoff - database might be temporarily busy
-    let start_time = ctx.utcnow().await
+    let start_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
     let health_result = ctx
@@ -112,7 +112,7 @@ pub async fn instance_actor_orchestration(
         )
         .await;
     
-    let end_time = ctx.utcnow().await
+    let end_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get end time: {}", e))?;
     let response_time_ms = end_time.duration_since(start_time)
         .map_err(|e| format!("Failed to calculate duration: {}", e))?

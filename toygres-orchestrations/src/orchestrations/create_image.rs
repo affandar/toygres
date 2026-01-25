@@ -57,8 +57,8 @@ pub async fn create_image_orchestration(
         .unwrap_or_else(|_| "toygres-images".to_string());
     
     // Generate unique blob path: images/{image-name}-{timestamp}/
-    // IMPORTANT: Use ctx.utcnow() for deterministic replay, not chrono::Utc::now()
-    let now = ctx.utcnow().await
+    // IMPORTANT: Use ctx.utc_now() for deterministic replay, not chrono::Utc::now()
+    let now = ctx.utc_now().await
         .map_err(|e| format!("Failed to get current time: {}", e))?;
     let timestamp = chrono::DateTime::<chrono::Utc>::from(now).format("%Y%m%d%H%M%S");
     let blob_path = format!("images/{}-{}", input.name, timestamp);
