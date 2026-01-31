@@ -156,6 +156,13 @@ kubectl create secret generic toygres-secrets \
     --from-literal=AZURE_TENANT_ID="$AZURE_TENANT_ID" \
     --dry-run=client -o yaml | kubectl apply -f -
 
+# Create Grafana secrets (use GRAFANA_ADMIN_PASSWORD if set, otherwise use TOYGRES_ADMIN_PASSWORD)
+GRAFANA_PASSWORD="${GRAFANA_ADMIN_PASSWORD:-$TOYGRES_ADMIN_PASSWORD}"
+kubectl create secret generic grafana-secrets \
+    --namespace toygres-system \
+    --from-literal=admin-password="$GRAFANA_PASSWORD" \
+    --dry-run=client -o yaml | kubectl apply -f -
+
 echo -e "${GREEN}✓ Secrets created${NC}"
 
 # Apply Kubernetes manifests
@@ -198,6 +205,15 @@ kubectl rollout restart deployment/toygres-ui -n toygres-system
 echo -e "\n${BLUE}⏳ Waiting for deployments to be ready...${NC}"
 kubectl rollout status deployment/toygres-server -n toygres-system --timeout=300s
 kubectl rollout status deployment/toygres-ui -n toygres-system --timeout=300s
+
+# Wait for observability stack (non-blocking, just check they exist)
+echo -e "\n${BLUE}📊 Checking observability deployments...${NC}"
+if kubectl get deployment/prometheus -n toygres-system &>/dev/null; then
+    kubectl rollout status deployment/prometheus -n toygres-system --timeout=120s || echo "  Warning: Prometheus not ready yet"
+fi
+if kubectl get deployment/grafana -n toygres-system &>/dev/null; then
+    kubectl rollout status deployment/grafana -n toygres-system --timeout=120s || echo "  Warning: Grafana not ready yet"
+fi
 
 echo -e "${GREEN}✓ Deployments ready${NC}"
 

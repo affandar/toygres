@@ -18,6 +18,10 @@ spec:
         app.kubernetes.io/name: toygres
         app.kubernetes.io/component: server
         azure.workload.identity/use: "true"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9091"
+        prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: toygres-server
       containers:
@@ -27,6 +31,9 @@ spec:
           ports:
             - name: http
               containerPort: 8080
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
               protocol: TCP
           envFrom:
             - configMapRef:
@@ -87,6 +94,10 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+    - port: 9091
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
   selector:
     app.kubernetes.io/name: toygres
     app.kubernetes.io/component: server

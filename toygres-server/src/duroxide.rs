@@ -1,6 +1,7 @@
 use anyhow::Result;
 use duroxide::runtime::{Runtime, RuntimeOptions, ObservabilityConfig, LogFormat};
 use duroxide_pg::PostgresProvider;
+use metrics_exporter_prometheus::PrometheusBuilder;
 use std::sync::Arc;
 use toygres_orchestrations::registry::{create_activity_registry, create_orchestration_registry};
 
@@ -52,49 +53,48 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
     runtime_options.orchestrator_lock_timeout = std::time::Duration::from_secs(30); // 30 seconds for orchestrations (default: 5s)
     runtime_options.orchestrator_lock_renewal_buffer = std::time::Duration::from_secs(5); // Renew 5s before expiry
     
-    // Configure observability (metrics and structured logging)
-    let observability_enabled = std::env::var("DUROXIDE_OBSERVABILITY_ENABLED")
-        .unwrap_or_else(|_| "true".to_string())
-        .parse::<bool>()
-        .unwrap_or(true);
+    // Install Prometheus metrics exporter (exposes /metrics on port 9091)
+    let metrics_port: u16 = std::env::var("METRICS_PORT")
+        .unwrap_or_else(|_| "9091".to_string())
+        .parse()
+        .unwrap_or(9091);
     
-    if observability_enabled {
-        let otel_endpoint = std::env::var("OTEL_EXPORTER_OTLP_ENDPOINT")
-            .unwrap_or_else(|_| "http://localhost:4317".to_string());
-        
-        let log_format_str = std::env::var("DUROXIDE_LOG_FORMAT")
-            .unwrap_or_else(|_| "json".to_string())
-            .to_lowercase();
-        
-        let log_format = match log_format_str.as_str() {
-            "compact" => LogFormat::Compact,
-            "pretty" => LogFormat::Pretty,
-            _ => LogFormat::Json,
-        };
-        
-        runtime_options.observability = ObservabilityConfig {
-            metrics_enabled: true,
-            metrics_export_endpoint: Some(otel_endpoint.clone()),
-            metrics_export_interval_ms: 10000, // 10 seconds
-            
-            log_format,
-            log_level: std::env::var("DUROXIDE_LOG_LEVEL")
-                .unwrap_or_else(|_| "debug".to_string()),  // Default to debug
-            
-            service_name: "toygres".to_string(),
-            service_version: Some(env!("CARGO_PKG_VERSION").to_string()),
-            
-            ..Default::default()
-        };
-        
-        tracing::info!(
-            "Duroxide observability enabled: metrics → {}, log_format = {}",
-            otel_endpoint,
-            log_format_str
-        );
-    } else {
-        tracing::info!("Duroxide observability disabled");
+    match PrometheusBuilder::new()
+        .with_http_listener(([0, 0, 0, 0], metrics_port))
+        .install()
+    {
+        Ok(()) => {
+            tracing::info!("Prometheus metrics exporter started on port {}", metrics_port);
+        }
+        Err(e) => {
+            tracing::warn!("Failed to start Prometheus metrics exporter: {} (metrics will not be available)", e);
+        }
     }
+    
+    // Configure observability (structured logging)
+    let log_format_str = std::env::var("DUROXIDE_LOG_FORMAT")
+        .unwrap_or_else(|_| "json".to_string())
+        .to_lowercase();
+    
+    let log_format = match log_format_str.as_str() {
+        "compact" => LogFormat::Compact,
+        "pretty" => LogFormat::Pretty,
+        _ => LogFormat::Json,
+    };
+    
+    runtime_options.observability = ObservabilityConfig {
+        log_format,
+        log_level: std::env::var("DUROXIDE_LOG_LEVEL")
+            .unwrap_or_else(|_| "debug".to_string()),
+        service_name: "toygres".to_string(),
+        service_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+    };
+    
+    tracing::info!(
+        "Duroxide observability configured: log_format = {}, metrics at :{}/metrics",
+        log_format_str,
+        metrics_port
+    );
     
     // Start Duroxide runtime
     tracing::info!("Starting Duroxide runtime: 10 orchestration workers, 10 activity workers, 5-minute activity timeout");

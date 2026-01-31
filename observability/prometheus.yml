@@ -6,12 +6,13 @@ global:
     environment: 'dev'
 
 scrape_configs:
-  # Scrape OTLP Collector's Prometheus exporter
-  - job_name: 'otel-collector'
+  # Scrape toygres-server metrics endpoint directly
+  - job_name: 'toygres'
     static_configs:
-      - targets: ['otel-collector:8889']
+      - targets: ['host.docker.internal:9091']
         labels:
           service: 'toygres'
+          component: 'server'
 
   # Self-scraping
   - job_name: 'prometheus'
