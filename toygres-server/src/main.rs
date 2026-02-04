@@ -82,10 +82,22 @@ fn initialize_tracing() -> Result<()> {
     Ok(())
 }
 
+fn install_rustls_crypto_provider() {
+    // rustls 0.23 requires an explicit process-level crypto provider selection in some
+    // dependency configurations (otherwise it can panic at runtime when first used).
+    // Installing a default provider here makes TLS usage deterministic.
+    //
+    // If a provider is already installed, ignore the error.
+    let _ = rustls::crypto::ring::default_provider().install_default();
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Load .env file
     dotenvy::dotenv().ok();
+
+    // Must run before any TLS client/server is initialized.
+    install_rustls_crypto_provider();
     
     // Parse command line arguments
     let args = Args::parse();

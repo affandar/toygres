@@ -40,6 +40,9 @@ tower-cookies = "0.10"
 time = "0.3"
 metrics-exporter-prometheus = "0.16"
 
+# Ensure a Rustls crypto provider is available and selectable at runtime.
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.29", features = ["signal"] }
 
