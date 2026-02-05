@@ -1,5 +1,9 @@
 # Toygres - AI Coding Assistant Instructions
 
+> **🚨 STOP: DO NOT `git commit` OR `git push` WITHOUT EXPLICIT USER PERMISSION 🚨**
+>
+> Always ask before committing or pushing. Never assume.
+
 ## Project Overview
 
 Toygres is a **Rust-based control plane** for hosting PostgreSQL containers as a service on Azure Kubernetes Service (AKS). It uses [Duroxide](https://github.com/affandar/duroxide) for durable workflow orchestration.
