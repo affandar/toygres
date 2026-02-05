@@ -8,6 +8,8 @@ This folder contains useful AI prompts and context documents to help with Toygre
 - **`implement-activity.md`** - Template prompt for implementing Duroxide activities
 - **`implement-orchestration.md`** - Template prompt for implementing Duroxide orchestrations
 - **`debugging-guide.md`** - Common issues and debugging strategies
+- **`push-postgres-container-image-to-toygres.md`** - Push a PostgreSQL container image to Toygres ACR and register it for deployment
+- **`upgrade-duroxide.md`** - Guide for upgrading the Duroxide dependency
 
 ## Usage
 
