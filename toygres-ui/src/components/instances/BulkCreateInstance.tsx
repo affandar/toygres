@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -19,6 +19,15 @@ export function BulkCreateInstance() {
   const [storageSize, setStorageSize] = useState(10);
   const [internal, setInternal] = useState(false);
   const [imageType, setImageType] = useState<'stock' | 'pg_durable'>('stock');
+  const [runtimeImageId, setRuntimeImageId] = useState('');
+
+  const { data: runtimeImages } = useQuery({
+    queryKey: ['runtime-images'],
+    queryFn: () => api.listRuntimeImages(),
+    staleTime: 10_000,
+  });
+
+  const imageSelectValue = runtimeImageId ? `runtime:${runtimeImageId}` : `builtin:${imageType}`;
 
   const createMutation = useMutation({
     mutationFn: (data: {
@@ -30,6 +39,7 @@ export function BulkCreateInstance() {
       internal: boolean;
       namespace: string;
       image_type: string;
+      runtime_image_id?: string;
     }) => api.bulkCreateInstances(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['instances'] });
@@ -59,7 +69,17 @@ export function BulkCreateInstance() {
       return;
     }
 
-    createMutation.mutate({
+    const payload: {
+      base_name: string;
+      count: number;
+      password: string;
+      postgres_version: string;
+      storage_size_gb: number;
+      internal: boolean;
+      namespace: string;
+      image_type: string;
+      runtime_image_id?: string;
+    } = {
       base_name: baseName,
       count,
       password,
@@ -68,7 +88,13 @@ export function BulkCreateInstance() {
       internal,
       namespace: 'toygres',
       image_type: imageType,
-    });
+    };
+
+    if (runtimeImageId) {
+      payload.runtime_image_id = runtimeImageId;
+    }
+
+    createMutation.mutate(payload);
   };
 
   return (
@@ -178,18 +204,46 @@ export function BulkCreateInstance() {
 
             <div>
               <label className="block text-sm font-medium mb-1">
-                Image Type
+                Postgres Image
               </label>
               <select
-                value={imageType}
-                onChange={(e) => setImageType(e.target.value as 'stock' | 'pg_durable')}
+                value={imageSelectValue}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value.startsWith('builtin:')) {
+                    setRuntimeImageId('');
+                    setImageType(value.replace('builtin:', '') as 'stock' | 'pg_durable');
+                    return;
+                  }
+
+                  if (value.startsWith('runtime:')) {
+                    const id = value.replace('runtime:', '');
+                    setRuntimeImageId(id);
+                    setImageType('stock');
+                  }
+                }}
                 className="w-full border rounded-md px-3 py-2"
               >
-                <option value="stock">Stock PostgreSQL</option>
-                <option value="pg_durable">PG Durable (with duroxide extension)</option>
+                <optgroup label="Built-in">
+                  <option value="builtin:stock">Stock PostgreSQL (built-in)</option>
+                  <option value="builtin:pg_durable">pg_durable (built-in)</option>
+                </optgroup>
+                <optgroup label="Runtime Images">
+                  {(runtimeImages?.length ?? 0) === 0 ? (
+                    <option value="__no_runtime_images__" disabled>
+                      (no runtime images registered)
+                    </option>
+                  ) : (
+                    runtimeImages?.map((img) => (
+                      <option key={img.id} value={`runtime:${img.id}`}>
+                        {img.name}
+                      </option>
+                    ))
+                  )}
+                </optgroup>
               </select>
               <p className="text-xs text-muted-foreground mt-1">
-                Stock uses vanilla postgres image, PG Durable includes the duroxide extension
+                Runtime Images use a digest-pinned ACR pull ref; built-ins use Toygres defaults.
               </p>
             </div>
 

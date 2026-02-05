@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, RefreshCw, Eye, EyeOff, Copy, Check } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -48,6 +48,7 @@ export function CreateInstance() {
     storage_size_gb: 10,
     internal: false,
     image_type: 'pg_durable' as 'stock' | 'pg_durable',
+    runtime_image_id: '' as string,
   });
 
   const [showPassword, setShowPassword] = useState(true); // Show by default so user can see generated password
@@ -56,7 +57,13 @@ export function CreateInstance() {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const createMutation = useMutation({
-    mutationFn: (data: typeof formData) => api.createInstance(data),
+    mutationFn: (data: typeof formData) => {
+      const payload: Record<string, unknown> = { ...data };
+      if (!data.runtime_image_id) {
+        delete payload.runtime_image_id;
+      }
+      return api.createInstance(payload as never);
+    },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['instances'] });
       showToast('success', `Instance '${data.instance_name}' creation started! DNS: ${data.dns_name}`);
@@ -66,6 +73,16 @@ export function CreateInstance() {
       showToast('error', `Failed to create instance: ${error.message}`);
     },
   });
+
+  const { data: runtimeImages } = useQuery({
+    queryKey: ['runtime-images'],
+    queryFn: () => api.listRuntimeImages(),
+    staleTime: 10_000,
+  });
+
+  const imageSelectValue = formData.runtime_image_id
+    ? `runtime:${formData.runtime_image_id}`
+    : `builtin:${formData.image_type}`;
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
@@ -240,56 +257,49 @@ export function CreateInstance() {
             </div>
 
             <div className="space-y-2">
-              <label className="text-sm font-medium">
-                Image Type
-              </label>
-              <div className="grid gap-3 md:grid-cols-2">
-                <div
-                  className={`relative rounded-lg border-2 p-4 cursor-pointer transition-colors ${
-                    formData.image_type === 'stock'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-input hover:border-muted-foreground/50'
-                  }`}
-                  onClick={() => setFormData({ ...formData, image_type: 'stock' })}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`h-4 w-4 rounded-full border-2 ${
-                      formData.image_type === 'stock' ? 'border-primary bg-primary' : 'border-muted-foreground'
-                    }`}>
-                      {formData.image_type === 'stock' && (
-                        <div className="h-full w-full rounded-full bg-primary" />
-                      )}
-                    </div>
-                    <span className="font-medium">Stock PostgreSQL</span>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    Standard PostgreSQL image. Best for typical database workloads.
-                  </p>
-                </div>
-                <div
-                  className={`relative rounded-lg border-2 p-4 cursor-pointer transition-colors ${
-                    formData.image_type === 'pg_durable'
-                      ? 'border-primary bg-primary/5'
-                      : 'border-input hover:border-muted-foreground/50'
-                  }`}
-                  onClick={() => setFormData({ ...formData, image_type: 'pg_durable' })}
-                >
-                  <div className="flex items-center gap-2">
-                    <div className={`h-4 w-4 rounded-full border-2 ${
-                      formData.image_type === 'pg_durable' ? 'border-primary bg-primary' : 'border-muted-foreground'
-                    }`}>
-                      {formData.image_type === 'pg_durable' && (
-                        <div className="h-full w-full rounded-full bg-primary" />
-                      )}
-                    </div>
-                    <span className="font-medium">pg_durable</span>
-                    <span className="ml-auto text-xs bg-blue-500/20 text-blue-500 px-2 py-0.5 rounded">Durable SQL</span>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    PostgreSQL with Duroxide extension for durable SQL functions and orchestrations.
-                  </p>
-                </div>
-              </div>
+              <label className="text-sm font-medium">Postgres Image</label>
+              <select
+                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={imageSelectValue}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value.startsWith('builtin:')) {
+                    const image_type = value.replace('builtin:', '') as 'stock' | 'pg_durable';
+                    setFormData({ ...formData, image_type, runtime_image_id: '' });
+                    return;
+                  }
+
+                  if (value.startsWith('runtime:')) {
+                    const runtime_image_id = value.replace('runtime:', '');
+                    setFormData({
+                      ...formData,
+                      runtime_image_id,
+                      image_type: 'stock',
+                    });
+                  }
+                }}
+              >
+                <optgroup label="Built-in">
+                  <option value="builtin:stock">Stock PostgreSQL (built-in)</option>
+                  <option value="builtin:pg_durable">pg_durable (built-in)</option>
+                </optgroup>
+                <optgroup label="Runtime Images">
+                  {(runtimeImages?.length ?? 0) === 0 ? (
+                    <option value="__no_runtime_images__" disabled>
+                      (no runtime images registered)
+                    </option>
+                  ) : (
+                    runtimeImages?.map((img) => (
+                      <option key={img.id} value={`runtime:${img.id}`}>
+                        {img.name}
+                      </option>
+                    ))
+                  )}
+                </optgroup>
+              </select>
+              <p className="text-xs text-muted-foreground">
+                Runtime Images use a digest-pinned ACR pull ref; built-ins use Toygres defaults.
+              </p>
             </div>
 
             <div className="flex items-center space-x-2">

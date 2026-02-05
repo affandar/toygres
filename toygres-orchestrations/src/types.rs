@@ -33,6 +33,16 @@ pub struct CreateInstanceInput {
     /// Source image ID to restore from (optional - if set, creates instance from backup)
     #[serde(default)]
     pub source_image_id: Option<String>,
+
+    /// Optional runtime image ID (toygres_cms.runtime_images.id) used for this deployment.
+    /// Stored in CMS for auditability and later delete-protection.
+    #[serde(default)]
+    pub runtime_image_id: Option<String>,
+
+    /// Optional digest-pinned image pull reference (e.g. toygresacr.azurecr.io/repo@sha256:...)
+    /// When provided, deploy activities use this image instead of deriving from image_type.
+    #[serde(default)]
+    pub image_override: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

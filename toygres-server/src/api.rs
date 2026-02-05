@@ -69,6 +69,9 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/images/:name", get(get_image).delete(delete_image))
         .route("/api/images/:name/logs", get(get_image_job_logs))
         .route("/api/instances/:name/images", post(create_image_from_instance))
+        // Runtime image catalog routes (ACR OCI images)
+        .route("/api/runtime-images", get(list_runtime_images))
+        .route("/api/runtime-images/register", post(register_runtime_image))
         // Auth middleware
         .layer(middleware::from_fn(auth::auth_middleware))
         // Cookie management
@@ -327,6 +330,10 @@ struct CreateInstanceRequest {
     /// Optional source image ID to restore from
     #[serde(default)]
     source_image_id: Option<String>,
+
+    /// Optional runtime image ID (ACR OCI image) to deploy from
+    #[serde(default)]
+    runtime_image_id: Option<String>,
 }
 
 fn default_version() -> String {
@@ -362,8 +369,48 @@ async fn create_instance(
         return Err(AppError::BadRequest("Password must be at least 8 characters".to_string()));
     }
     
-    // Parse image type
-    let image_type = ImageType::from_str(&req.image_type);
+    // Parse image type. Note: runtime images are always deployed in stock mode.
+    let mut image_type = ImageType::from_str(&req.image_type);
+
+    // If a runtime image is specified, resolve it to a canonical pull ref
+    let (runtime_image_id, image_override) = if let Some(runtime_image_id) = &req.runtime_image_id {
+        // Runtime images are treated as stock deployments (pg_durable is built-in only).
+        image_type = ImageType::Stock;
+
+        let image_uuid = Uuid::parse_str(runtime_image_id)
+            .map_err(|e| AppError::BadRequest(format!("Invalid runtime_image_id: {}", e)))?;
+
+        let pool = get_cms_pool().await
+            .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT acr_ref, digest
+            FROM toygres_cms.runtime_images
+            WHERE id = $1 AND state != 'deleted'
+            "#
+        )
+        .bind(image_uuid)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to resolve runtime image: {}", e)))?;
+
+        let (acr_ref, digest): (String, String) = match row {
+            Some(row) => {
+                use sqlx::Row;
+                (row.get("acr_ref"), row.get("digest"))
+            }
+            None => {
+                return Err(AppError::BadRequest("Runtime image not found (or deleted)".to_string()));
+            }
+        };
+
+        // Store the override as a digest-pinned pull string
+        let pull_ref = format!("{}@{}", acr_ref, digest);
+        (Some(runtime_image_id.clone()), Some(pull_ref))
+    } else {
+        (None, None)
+    };
     
     // Generate K8s name (name + random suffix)
     let suffix = Uuid::new_v4().to_string().split('-').next().unwrap().to_string();
@@ -382,6 +429,8 @@ async fn create_instance(
         orchestration_id: orchestration_id.clone(),
         image_type: image_type.clone(),
         source_image_id: req.source_image_id,
+        runtime_image_id,
+        image_override,
     };
     
     // Start the create orchestration (uses latest registered version via default Latest policy)
@@ -400,6 +449,163 @@ async fn create_instance(
         "orchestration_id": orchestration_id,
         "dns_name": format!("{}.westus3.cloudapp.azure.com", req.name),
         "image_type": image_type.as_str(),
+    })))
+}
+
+// ============================================================================
+// Runtime Image Catalog API Handlers
+// ============================================================================
+
+#[derive(Debug, serde::Deserialize)]
+struct RegisterRuntimeImageRequest {
+    name: String,
+    acr_ref: String,
+    digest: String,
+    #[serde(default)]
+    description: Option<String>,
+    #[serde(default = "default_image_type")]
+    suggested_image_type: String,
+}
+
+fn is_valid_sha256_digest(digest: &str) -> bool {
+    let Some(hex) = digest.strip_prefix("sha256:") else {
+        return false;
+    };
+    hex.len() == 64 && hex.chars().all(|c| matches!(c, '0'..='9' | 'a'..='f'))
+}
+
+fn validate_acr_ref_is_toygres(acr_ref: &str) -> Result<(), AppError> {
+    let acr_host = std::env::var("TOYGRES_ACR_HOST").unwrap_or_else(|_| "toygresacr.azurecr.io".to_string());
+
+    // Allow either full image ref "host/repo[:tag]" or "host/repo".
+    let prefix = format!("{}/", acr_host);
+    if !acr_ref.starts_with(&prefix) {
+        return Err(AppError::BadRequest(format!(
+            "acr_ref must start with '{}' (set TOYGRES_ACR_HOST to override)",
+            prefix
+        )));
+    }
+
+    Ok(())
+}
+
+async fn list_runtime_images(
+    State(_state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let pool = get_cms_pool().await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT id, name, description, acr_ref, digest,
+               suggested_image_type::text AS suggested_image_type,
+               state, created_at
+        FROM toygres_cms.runtime_images
+        WHERE state != 'deleted'
+        ORDER BY created_at DESC
+        "#
+    )
+    .fetch_all(&*pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to list runtime images: {}", e)))?;
+
+    let images: Vec<serde_json::Value> = rows
+        .iter()
+        .map(|row| {
+            use chrono::{DateTime, Utc};
+            use sqlx::Row;
+
+            let created_at: DateTime<Utc> = row.get("created_at");
+            serde_json::json!({
+                "id": row.get::<uuid::Uuid, _>("id").to_string(),
+                "name": row.get::<String, _>("name"),
+                "description": row.get::<Option<String>, _>("description"),
+                "acr_ref": row.get::<String, _>("acr_ref"),
+                "digest": row.get::<String, _>("digest"),
+                "suggested_image_type": row.get::<String, _>("suggested_image_type"),
+                "state": row.get::<String, _>("state"),
+                "created_at": created_at.to_rfc3339(),
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!(images)))
+}
+
+async fn register_runtime_image(
+    State(_state): State<AppState>,
+    Json(req): Json<RegisterRuntimeImageRequest>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    use uuid::Uuid;
+
+    if req.name.trim().is_empty() {
+        return Err(AppError::BadRequest("name is required".to_string()));
+    }
+    if !req.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+        return Err(AppError::BadRequest(
+            "Invalid name. Use only alphanumeric characters, hyphens, and underscores.".to_string(),
+        ));
+    }
+
+    validate_acr_ref_is_toygres(&req.acr_ref)?;
+
+    let digest = req.digest.to_lowercase();
+    if !is_valid_sha256_digest(&digest) {
+        return Err(AppError::BadRequest("digest must be a lowercase sha256:... (64 hex chars)".to_string()));
+    }
+
+    // Runtime images are treated as stock PostgreSQL deployments.
+    // `pg_durable` is a built-in special image/mode and is not supported for arbitrary uploaded images.
+    let requested_mode = req.suggested_image_type.to_lowercase();
+    if requested_mode != "stock" {
+        return Err(AppError::BadRequest(
+            "Runtime images must use suggested_image_type='stock' (pg_durable is built-in only)".to_string(),
+        ));
+    }
+    let suggested_image_type = "stock".to_string();
+
+    let pool = get_cms_pool().await
+        .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+
+    let id = Uuid::new_v4();
+
+    let row = sqlx::query(
+        r#"
+        INSERT INTO toygres_cms.runtime_images
+            (id, name, description, acr_ref, digest, suggested_image_type, state)
+        VALUES
+            ($1, $2, $3, $4, $5, $6::toygres_cms.image_type, 'ready')
+        ON CONFLICT (name) WHERE state != 'deleted' DO UPDATE
+        SET description = EXCLUDED.description,
+            acr_ref = EXCLUDED.acr_ref,
+            digest = EXCLUDED.digest,
+            suggested_image_type = EXCLUDED.suggested_image_type,
+            updated_at = NOW()
+        RETURNING id
+        "#
+    )
+    .bind(id)
+    .bind(&req.name)
+    .bind(&req.description)
+    .bind(&req.acr_ref)
+    .bind(&digest)
+    .bind(&suggested_image_type)
+    .fetch_one(&*pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to register runtime image: {}", e)))?;
+
+    let image_id: uuid::Uuid = {
+        use sqlx::Row;
+        row.get("id")
+    };
+
+    Ok(Json(serde_json::json!({
+        "id": image_id.to_string(),
+        "name": req.name,
+        "acr_ref": req.acr_ref,
+        "digest": digest,
+        "suggested_image_type": suggested_image_type,
+        "message": "Runtime image registered",
     })))
 }
 
@@ -442,7 +648,47 @@ async fn bulk_create_instances(
     let image_type_str = req.get("image_type")
         .and_then(|v| v.as_str())
         .unwrap_or("stock");
-    let image_type = ImageType::from_str(image_type_str);
+
+    let runtime_image_id_str = req.get("runtime_image_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    // If a runtime image is specified, resolve it to a canonical pull ref.
+    // Runtime images are always deployed in stock mode (pg_durable is built-in only).
+    let (runtime_image_id, image_override, image_type) = if let Some(runtime_image_id) = &runtime_image_id_str {
+        let image_uuid = Uuid::parse_str(runtime_image_id)
+            .map_err(|e| AppError::BadRequest(format!("Invalid runtime_image_id: {}", e)))?;
+
+        let pool = get_cms_pool().await
+            .map_err(|e| AppError::Internal(format!("Database error: {}", e)))?;
+
+        let row = sqlx::query(
+            r#"
+            SELECT acr_ref, digest
+            FROM toygres_cms.runtime_images
+            WHERE id = $1 AND state != 'deleted'
+            "#
+        )
+        .bind(image_uuid)
+        .fetch_optional(&*pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to resolve runtime image: {}", e)))?;
+
+        let (acr_ref, digest): (String, String) = match row {
+            Some(row) => {
+                use sqlx::Row;
+                (row.get("acr_ref"), row.get("digest"))
+            }
+            None => {
+                return Err(AppError::BadRequest("Runtime image not found (or deleted)".to_string()));
+            }
+        };
+
+        let pull_ref = format!("{}@{}", acr_ref, digest);
+        (Some(runtime_image_id.clone()), Some(pull_ref), ImageType::Stock)
+    } else {
+        (None, None, ImageType::from_str(image_type_str))
+    };
     
     // Validate
     if base_name.is_empty() || !base_name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') {
@@ -477,6 +723,8 @@ async fn bulk_create_instances(
             orchestration_id: orchestration_id.clone(),
             image_type: image_type.clone(),
             source_image_id: None,
+            runtime_image_id: runtime_image_id.clone(),
+            image_override: image_override.clone(),
         };
         
         state.duroxide_client

@@ -29,6 +29,19 @@ export interface ImageDetail extends Image {
   orchestration_id: string;
 }
 
+export type RuntimeImageState = 'ready' | 'deleted';
+
+export interface RuntimeImage {
+  id: string;
+  name: string;
+  description: string | null;
+  acr_ref: string;
+  digest: string;
+  suggested_image_type: ImageType;
+  state: RuntimeImageState;
+  created_at: string;
+}
+
 export interface Instance {
   user_name: string;
   k8s_name: string;

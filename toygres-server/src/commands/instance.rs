@@ -196,6 +196,8 @@ async fn handle_create(
         orchestration_id: instance_id.clone(),
         image_type: toygres_orchestrations::activity_types::ImageType::Stock, // CLI uses stock by default
         source_image_id: None,
+        runtime_image_id: None,
+        image_override: None,
     };
     
     let input_json = serde_json::to_string(&input)?;

@@ -1,4 +1,5 @@
 pub mod deploy_postgres;
+pub mod deploy_postgres_v2;
 pub mod deploy_postgres_from_pvc;
 pub mod delete_postgres;
 pub mod wait_for_ready;

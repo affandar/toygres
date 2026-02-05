@@ -1,4 +1,4 @@
-import type { Instance, InstanceDetail, Orchestration, HealthResponse, ServerStatus, Image, ImageDetail } from './types';
+import type { Instance, InstanceDetail, Orchestration, HealthResponse, ServerStatus, Image, ImageDetail, RuntimeImage } from './types';
 
 const API_BASE = ''; // Proxy configured in vite.config.ts
 
@@ -134,6 +134,7 @@ export const api = {
     namespace?: string;
     image_type?: 'stock' | 'pg_durable';
     source_image_id?: string;
+    runtime_image_id?: string;
   }): Promise<{
     instance_name: string;
     k8s_name: string;
@@ -142,6 +143,24 @@ export const api = {
     image_type: string;
   }> {
     return fetchJson(`${API_BASE}/api/instances`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  },
+
+  // Runtime Images (ACR catalog)
+  async listRuntimeImages() {
+    return fetchJson<RuntimeImage[]>(`${API_BASE}/api/runtime-images`);
+  },
+
+  async registerRuntimeImage(data: {
+    name: string;
+    acr_ref: string;
+    digest: string;
+    description?: string;
+    suggested_image_type?: 'stock' | 'pg_durable';
+  }) {
+    return fetchJson(`${API_BASE}/api/runtime-images/register`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
@@ -239,6 +258,7 @@ export const api = {
     internal?: boolean;
     namespace?: string;
     image_type?: string;
+    runtime_image_id?: string;
   }): Promise<{
     count: number;
     instances: Array<{

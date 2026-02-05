@@ -16,21 +16,10 @@ use crate::orchestrations::{create_instance, delete_instance, instance_actor, sy
 /// ```
 pub fn create_orchestration_registry() -> OrchestrationRegistry {
     OrchestrationRegistry::builder()
+        // v1.0.5: Unified orchestration with inlined restore logic
         .register_typed(
             create_instance::NAME,
-            create_instance::create_instance_orchestration,
-        )
-        // v1.0.1: CMS updates now propagate errors (schema-qualified enums)
-        .register_versioned_typed(
-            create_instance::NAME,
-            "1.0.1",
-            create_instance::create_instance_1_0_1,
-        )
-        // v1.0.2: Support restore from image (source_image_id)
-        .register_versioned_typed(
-            create_instance::NAME,
-            "1.0.2",
-            create_instance::create_instance_1_0_2,
+            create_instance::create_instance_1_0_5,
         )
         .register_typed(
             delete_instance::NAME,
@@ -105,6 +94,10 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::deploy_postgres::activity,
         )
         .register_typed(
+            activities::deploy_postgres_v2::NAME,
+            activities::deploy_postgres_v2::activity,
+        )
+        .register_typed(
             activities::deploy_postgres_from_pvc::NAME,
             activities::deploy_postgres_from_pvc::activity,
         )
@@ -172,6 +165,10 @@ pub fn create_activity_registry() -> ActivityRegistry {
         .register_typed(
             activities::cms::delete_instance_record::NAME,
             activities::cms::delete_instance_record::activity,
+        )
+        .register_typed(
+            activities::cms::set_instance_runtime_image::NAME,
+            activities::cms::set_instance_runtime_image::activity,
         )
         .register_typed(
             activities::cms::image_ops::NAME,

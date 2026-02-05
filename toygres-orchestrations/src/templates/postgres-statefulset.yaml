@@ -21,7 +21,7 @@ spec:
         instance: {{ name }}
         image-type: {{ image_type }}
     spec:
-      {% if image_type == "pg_durable" %}
+      {% if image_type == "pg_durable" or needs_acr_secret %}
       imagePullSecrets:
       - name: acr-secret
       {% endif %}
@@ -32,6 +32,8 @@ spec:
         - containerPort: 5432
           name: postgres
         args:
+          - "-c"
+          - "listen_addresses=*"
           - "-c"
           - "wal_level=replica"
           - "-c"

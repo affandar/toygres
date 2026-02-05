@@ -10,7 +10,8 @@ import {
   GitBranch,
   FileCode,
   Scissors,
-  HardDrive
+  HardDrive,
+  Package
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -36,6 +37,11 @@ const navigation: NavItem[] = [
     title: 'Backup Images',
     href: '/images',
     icon: HardDrive,
+  },
+  {
+    title: 'Runtime Images',
+    href: '/runtime-images',
+    icon: Package,
   },
   {
     title: 'System',

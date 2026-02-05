@@ -300,45 +300,9 @@ if let Err(err) = ctx
 
 ## Versioning Strategy
 
-**CRITICAL: Never modify existing orchestration code. Always create new versions.**
+Versioning is critical and detailed enough to warrant its own skill.
 
-Running orchestrations replay their history - changing code breaks replay.
-
-### Adding a New Version (Recommended Pattern)
-
-When adding a new version, follow this workflow for cleaner git diffs:
-
-1. **Copy the current latest version** to a new function with the OLD version number
-2. **Make your changes** in the existing function name and bump its version
-3. Register both in the registry
-
-**Why?** This preserves history per version and makes git diffs show only the actual changes,
-rather than showing the new version as entirely new code.
-
-```rust
-// STEP 1: Copy current implementation to preserve v1.0.1
-pub async fn my_orchestration_1_0_1(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
-    ctx.trace_info("[v1.0.1] Original logic");
-    // Exact copy of previous implementation - DO NOT MODIFY
-}
-
-// STEP 2: Update the main function with new version
-// This is now v1.0.2 - git diff will clearly show what changed
-pub async fn my_orchestration_1_0_2(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
-    ctx.trace_info("[v1.0.2] Updated logic");
-    // Your new changes here - git diff shows only the delta
-}
-```
-
-Register all versions:
-
-```rust
-OrchestrationRegistry::builder()
-    .register_typed(NAME, my_orchestration)  // v1.0.0 (original)
-    .register_versioned_typed(NAME, "1.0.1", my_orchestration_1_0_1)
-    .register_versioned_typed(NAME, "1.0.2", my_orchestration_1_0_2)  // Latest
-    .build()
-```
+See: `.claude/skills/duroxide-orchestration-versioning/SKILL.md`
 
 ## Logging
 

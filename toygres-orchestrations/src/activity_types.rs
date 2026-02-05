@@ -72,6 +72,37 @@ pub struct DeployPostgresOutput {
 }
 
 // ============================================================================
+// Deploy PostgreSQL Activity (v2 - supports image override)
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct DeployPostgresV2Input {
+    /// Kubernetes namespace
+    pub namespace: String,
+    /// Instance name (used for K8s resource names)
+    pub instance_name: String,
+    /// PostgreSQL password
+    pub password: String,
+    /// PostgreSQL version (e.g., "16", "18")
+    pub postgres_version: String,
+    /// Storage size in GB
+    pub storage_size_gb: i32,
+    /// Use LoadBalancer (true) or ClusterIP (false)
+    pub use_load_balancer: bool,
+    /// Optional DNS label for Azure DNS
+    pub dns_label: Option<String>,
+    /// Image type (stock or pg_durable)
+    #[serde(default)]
+    pub image_type: ImageType,
+    /// Custom image registry (for pg_durable images)
+    pub image_registry: Option<String>,
+    /// Optional fully-qualified, digest-pinned image pull reference.
+    /// When set, takes precedence over image_type/image_registry.
+    #[serde(default)]
+    pub image_override: Option<String>,
+}
+
+// ============================================================================
 // Delete PostgreSQL Activity
 // ============================================================================
 
@@ -225,6 +256,17 @@ pub struct UpdateInstanceStateInput {
 pub struct UpdateInstanceStateOutput {
     pub updated: bool,
     pub previous_state: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetInstanceRuntimeImageInput {
+    pub k8s_name: String,
+    pub runtime_image_id: Uuid,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SetInstanceRuntimeImageOutput {
+    pub updated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

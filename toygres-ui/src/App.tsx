@@ -14,6 +14,7 @@ import { InstanceWorkflowsPage } from '@/components/instances/InstanceWorkflowsP
 import { ImageList } from '@/components/images/ImageList';
 import { ImageDetail } from '@/components/images/ImageDetail';
 import { CreateImage } from '@/components/images/CreateImage';
+import { RuntimeImageCatalog } from '@/components/runtime-images/RuntimeImageCatalog';
 import { Stats } from '@/components/system/Stats';
 import { Config } from '@/components/system/Config';
 import { Workers } from '@/components/system/Workers';
@@ -76,6 +77,9 @@ function AppRoutes() {
           <Route path="create" element={<CreateImage />} />
           <Route path=":name" element={<ImageDetail />} />
         </Route>
+
+        {/* Runtime Images */}
+        <Route path="runtime-images" element={<RuntimeImageCatalog />} />
         
         {/* System */}
         <Route path="system">
