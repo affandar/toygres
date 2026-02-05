@@ -19,7 +19,7 @@ This applies to:
 
 ## When You MUST Create a New Version
 
-Create a new orchestration version for **any** logic change, including “small fixes”:
+Create a new orchestration version for **any** logic change, including "small fixes":
 - Bug fixes, error handling tweaks, logging changes that affect control flow
 - Changing activity calls (order/inputs/retry policies)
 - Adding/removing timers
@@ -38,7 +38,7 @@ To bump to `1.0.3`:
 3. Make your code changes inside the renamed `myorch_1_0_3()`.
 4. Register the new version in the orchestration registry.
 
-This keeps the “latest code” in the same spot in the file so git diffs show the real delta instead of a huge move/add.
+This keeps the "latest code" in the same spot in the file so git diffs show the real delta instead of a huge move/add.
 
 Example:
 
@@ -63,15 +63,14 @@ OrchestrationRegistry::builder()
   .register_typed(NAME, my_orch_v1_0_0)                 // original
   .register_versioned_typed(NAME, "1.0.1", my_orch_1_0_1)
   .register_versioned_typed(NAME, "1.0.2", my_orch_1_0_2)
-  .register_versioned_typed(NAME, "1.0.3", my_orch_1_0_3)
-  .register_versioned_typed(NAME, "1.0.4", my_orch_1_0_4) // latest
+  .register_versioned_typed(NAME, "1.0.3", my_orch_1_0_3) // latest
   .build();
 ```
 
 ## Logging Convention
 
 Prefix all orchestration logs with the version for debugging:
-- `ctx.trace_info("[v1.0.4] ...")`
+- `ctx.trace_info("[v1.0.3] ...")`
 
 ## Version Selection + Rollout Behavior
 
@@ -80,7 +79,7 @@ Prefix all orchestration logs with the version for debugging:
 
 ## Safe Refactors
 
-If you want to “refactor” orchestration code:
+If you want to "refactor" orchestration code:
 - Do it by **adding a new version** (e.g., `1.0.5`) with the refactor.
 - Do **not** modify earlier versions.
 

@@ -1,3 +1,4 @@
+````skill
 ---
 name: duroxide-orchestrations
 description: Writing durable workflows using Duroxide in Rust. Use when creating orchestrations, activities, workflows, or when the user mentions duroxide, durable functions, or workflow orchestration.
@@ -118,7 +119,6 @@ pub async fn my_orchestration(
             activities::my_activity::NAME,
             &activity_input,
         )
-        .into_activity_typed::<ActivityOutput>()
         .await?;
 
     Ok(MyOutput { ... })
@@ -145,7 +145,6 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
 ```rust
 let result = ctx
     .schedule_activity_typed::<Input, Output>(NAME, &input)
-    .into_activity_typed::<Output>()
     .await?;
 ```
 
@@ -167,28 +166,6 @@ let result = ctx
     .await?;
 ```
 
-### Backoff Strategies
-
-```rust
-// Fixed delay between retries
-BackoffStrategy::Fixed {
-    delay: Duration::from_secs(5)
-}
-
-// Linear increase: 2s, 4s, 6s, 8s, max 10s
-BackoffStrategy::Linear {
-    base: Duration::from_secs(2),
-    max: Duration::from_secs(10)
-}
-
-// Exponential: 2s, 4s, 8s, 16s, max 30s
-BackoffStrategy::Exponential {
-    base: Duration::from_secs(2),
-    multiplier: 2.0,
-    max: Duration::from_secs(30)
-}
-```
-
 ### Sub-Orchestration (Reusable Workflow)
 
 ```rust
@@ -197,7 +174,6 @@ let result = ctx
         orchestrations::CHILD_WORKFLOW,
         &input,
     )
-    .into_sub_orchestration_typed::<Output>()
     .await?;
 ```
 
@@ -220,10 +196,10 @@ ctx.schedule_orchestration(
 
 ```rust
 // Deterministic timer - safe for replay
-ctx.schedule_timer(Duration::from_secs(30)).into_timer().await;
+ctx.schedule_timer(Duration::from_secs(30)).await;
 
 // Get current time deterministically
-let now = ctx.utcnow().await?;
+let now = ctx.utc_now().await?;
 ```
 
 ## Signal Handling with select2
@@ -258,7 +234,7 @@ pub async fn long_running_orchestration(
     let result = do_work(&ctx, &input).await?;
 
     // Wait before next iteration
-    ctx.schedule_timer(Duration::from_secs(60)).into_timer().await;
+    ctx.schedule_timer(Duration::from_secs(60)).await;
 
     // Continue as new: restarts with fresh execution history
     let next_input = MyInput {
@@ -278,21 +254,14 @@ pub async fn long_running_orchestration(
 
 ```rust
 // Fail orchestration if activity fails
-let result = ctx
-    .schedule_activity_typed::<I, O>(NAME, &input)
-    .into_activity_typed::<O>()
-    .await?;  // ? propagates error
+let result = ctx.schedule_activity_typed::<I, O>(NAME, &input).await?;
 ```
 
 ### Best-Effort Operations (Log and Continue)
 
 ```rust
 // Don't fail orchestration for non-critical operations
-if let Err(err) = ctx
-    .schedule_activity_typed::<I, O>(NAME, &input)
-    .into_activity_typed::<O>()
-    .await
-{
+if let Err(err) = ctx.schedule_activity_typed::<I, O>(NAME, &input).await {
     ctx.trace_warn(format!("Non-critical operation failed: {}", err));
     // Continue despite error
 }
@@ -302,7 +271,7 @@ if let Err(err) = ctx
 
 Versioning is critical and detailed enough to warrant its own skill.
 
-See: `.claude/skills/duroxide-orchestration-versioning/SKILL.md`
+See: `.agents/skills/duroxide-orchestration-versioning/SKILL.md`
 
 ## Logging
 
@@ -312,113 +281,6 @@ Use context logging methods for durability:
 ctx.trace_info(format!("Processing: {}", id));
 ctx.trace_warn(format!("Warning: {}", message));
 ctx.trace_error(format!("Error: {}", error));
-```
-
-## Type Definitions
-
-All I/O types must implement Serialize/Deserialize:
-
-```rust
-// activity_types.rs
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MyInput {
-    pub name: String,
-    pub count: i32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct MyOutput {
-    pub result: String,
-    pub success: bool,
-}
-```
-
-Add serialization tests:
-
-```rust
-#[test]
-fn test_my_input_serialization() {
-    let input = MyInput { name: "test".into(), count: 5 };
-    let json = serde_json::to_string(&input).unwrap();
-    let parsed: MyInput = serde_json::from_str(&json).unwrap();
-    assert_eq!(input, parsed);
-}
-```
-
-## Complete Example: Multi-Step Orchestration
-
-```rust
-pub async fn create_resource_orchestration(
-    ctx: OrchestrationContext,
-    input: CreateResourceInput,
-) -> Result<CreateResourceOutput, String> {
-    ctx.trace_info(format!("Creating resource: {}", input.name));
-
-    // Step 1: Reserve in database
-    ctx.schedule_activity_typed::<ReserveInput, ReserveOutput>(
-        activities::reserve_resource::NAME,
-        &ReserveInput { name: input.name.clone() },
-    )
-    .into_activity_typed::<ReserveOutput>()
-    .await?;
-
-    // Step 2: Create with retry (external service may be flaky)
-    match create_with_retry(&ctx, &input).await {
-        Ok(output) => {
-            // Step 3: Update status to ready
-            update_status(&ctx, &input.name, "ready").await;
-            Ok(output)
-        }
-        Err(e) => {
-            ctx.trace_error(format!("Creation failed: {}", e));
-            // Step 4: Cleanup on failure via sub-orchestration
-            cleanup_on_failure(&ctx, &input.name).await;
-            Err(e)
-        }
-    }
-}
-
-async fn create_with_retry(
-    ctx: &OrchestrationContext,
-    input: &CreateResourceInput,
-) -> Result<CreateResourceOutput, String> {
-    ctx
-        .schedule_activity_with_retry_typed::<CreateInput, CreateOutput>(
-            activities::create_resource::NAME,
-            &CreateInput { ... },
-            RetryPolicy::new(3)
-                .with_backoff(BackoffStrategy::Exponential {
-                    base: Duration::from_secs(2),
-                    multiplier: 2.0,
-                    max: Duration::from_secs(30),
-                }),
-        )
-        .await
-}
-
-async fn cleanup_on_failure(ctx: &OrchestrationContext, name: &str) -> Result<(), String> {
-    ctx
-        .schedule_sub_orchestration_typed::<DeleteInput, DeleteOutput>(
-            orchestrations::DELETE_RESOURCE,
-            &DeleteInput { name: name.to_string() },
-        )
-        .into_sub_orchestration_typed::<DeleteOutput>()
-        .await?;
-    Ok(())
-}
-
-async fn update_status(ctx: &OrchestrationContext, name: &str, status: &str) {
-    if let Err(e) = ctx
-        .schedule_activity_typed::<UpdateInput, UpdateOutput>(
-            activities::update_status::NAME,
-            &UpdateInput { name: name.to_string(), status: status.to_string() },
-        )
-        .into_activity_typed::<UpdateOutput>()
-        .await
-    {
-        ctx.trace_warn(format!("Failed to update status: {}", e));
-    }
-}
 ```
 
 ## Best Practices Summary
@@ -434,35 +296,4 @@ async fn update_status(ctx: &OrchestrationContext, name: &str, status: &str) {
 9. **Composition**: Use sub-orchestrations for reusable workflows
 10. **Background Tasks**: Use detached orchestrations for fire-and-forget
 
-## Client API
-
-```rust
-// Start orchestration (uses latest registered version - PREFERRED)
-client.start_orchestration(instance_id, orchestration_name, input).await?;
-
-// Start specific version (only when you need to pin to older version)
-client.start_orchestration_versioned(instance_id, orchestration_name, "1.0.1", input).await?;
-
-// Cancel orchestration
-client.cancel_instance(instance_id, "reason").await?;
-
-// Send signal
-client.send_signal(instance_id, "SignalName", payload).await?;
-
-// Get status
-let info = client.get_instance_info(instance_id).await?;
-```
-
-### Version Selection
-
-**Default behavior:** `start_orchestration` automatically uses the latest registered version.
-
-**Use `start_orchestration_versioned` only when:**
-- You need to pin to a specific older version for compatibility
-- Testing a specific version in isolation
-
-**Version numbering convention:**
-- `1.0.0` - Initial version
-- `1.0.1` - Bug fixes, minor improvements
-- `1.0.2` - Additional bug fixes, new optional features
-- Major version changes for breaking input/output changes
+````

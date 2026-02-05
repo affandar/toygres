@@ -1,3 +1,4 @@
+````skill
 ---
 name: fullstack-features
 description: Building full-stack features in Toygres from UI to database. Use when adding new features, API endpoints, React components, or implementing end-to-end functionality.
@@ -19,6 +20,15 @@ Adding a complete feature from UI to database in Toygres.
 7. [ ] UI component update
 8. [ ] Build both: `cargo build --workspace && cd toygres-ui && npm run build`
 9. [ ] Deploy: `./deploy/deploy-to-aks.sh --https`
+
+## Image Type Notes
+
+**`pg_durable` is a built-in special mode** — it is NOT a user-uploadable runtime image.
+
+When adding runtime image support:
+- Runtime images from ACR are always deployed in **stock** mode
+- Only the built-in `pg_durable` uses special env vars and pg_hba.conf configuration
+- Force `image_type = 'stock'` when a `runtime_image_id` is provided
 
 ## API Endpoint Pattern
 
@@ -85,3 +95,18 @@ const myMutation = useMutation({
 **Durable** (multi-step, needs retry/recovery):
 - UI → API → Start Orchestration → Activities
 - Example: Create instance (deploy + wait + test connection)
+
+## Catalog Entity Pattern
+
+For adding a new "catalog" of entities (like runtime images):
+
+1. **Migration**: Create table with id, name, metadata columns
+2. **API**: Add list + register endpoints
+3. **Types**: Add TypeScript interface
+4. **API Client**: Add fetch functions
+5. **UI**: Create list/form component
+6. **Sidebar**: Add navigation entry
+
+See `database-changes` skill for detailed SQL patterns.
+
+````

@@ -1,3 +1,4 @@
+````skill
 ---
 name: aks-deployment
 description: Deploying and debugging Toygres on AKS (Azure Kubernetes Service). Use when deploying, debugging pods, viewing logs, troubleshooting SSL, or managing Kubernetes resources.
@@ -128,29 +129,4 @@ RetryPolicy::new(5)
     .with_timeout(Duration::from_secs(120)) // Not 60s!
 ```
 
-**Debug DNS propagation:**
-```bash
-# Check if service has external IP
-kubectl get svc -n toygres-managed <svc-name>
-
-# Test DNS resolution
-nslookup <dns-label>.westus2.cloudapp.azure.com
-
-# Watch for IP assignment
-kubectl get svc -n toygres-managed -w
-```
-
-## Local Testing Before Deploy
-
-```bash
-# Pause AKS server
-kubectl scale deployment toygres-server -n toygres-system --replicas=0
-
-# Run locally
-./scripts/start-control-plane.sh
-
-# Test at http://localhost:3000
-
-# Resume AKS
-kubectl scale deployment toygres-server -n toygres-system --replicas=1
-```
+````
