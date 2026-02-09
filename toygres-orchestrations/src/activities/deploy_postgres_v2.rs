@@ -12,7 +12,7 @@ use tera::{Tera, Context as TeraContext};
 pub const NAME: &str = "toygres-orchestrations::activity::deploy-postgres-v2";
 
 /// Default ACR for pg_durable images
-const DEFAULT_PG_DURABLE_REGISTRY: &str = "toygresacr.azurecr.io";
+const DEFAULT_PG_DURABLE_REGISTRY: &str = "toygresaksacr.azurecr.io";
 
 /// Get the Docker image based on image type or override
 fn get_image(input: &DeployPostgresV2Input) -> String {
@@ -91,7 +91,7 @@ async fn create_k8s_resources(
     let image = get_image(input);
     ctx.trace_info(format!("[v2] Using image: {}", image));
 
-    let acr_host = std::env::var("TOYGRES_ACR_HOST").unwrap_or_else(|_| "toygresacr.azurecr.io".to_string());
+    let acr_host = std::env::var("TOYGRES_ACR_HOST").unwrap_or_else(|_| "toygresaksacr.azurecr.io".to_string());
     let needs_acr_secret = image.starts_with(&format!("{}/", acr_host));
 
     let mut template_ctx = TeraContext::new();

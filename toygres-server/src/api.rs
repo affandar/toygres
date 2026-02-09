@@ -475,7 +475,7 @@ fn is_valid_sha256_digest(digest: &str) -> bool {
 }
 
 fn validate_acr_ref_is_toygres(acr_ref: &str) -> Result<(), AppError> {
-    let acr_host = std::env::var("TOYGRES_ACR_HOST").unwrap_or_else(|_| "toygresacr.azurecr.io".to_string());
+    let acr_host = std::env::var("TOYGRES_ACR_HOST").unwrap_or_else(|_| "toygresaksacr.azurecr.io".to_string());
 
     // Allow either full image ref "host/repo[:tag]" or "host/repo".
     let prefix = format!("{}/", acr_host);

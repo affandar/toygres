@@ -84,7 +84,7 @@ async fn build_connection_strings(
         
         let mut external_ip: Option<String> = None;
         
-        for attempt in 1..=10 {
+        for attempt in 1..=24 {
             let svc = services.get(&service_name).await?;
             
             if let Some(status) = &svc.status {
@@ -101,8 +101,8 @@ async fn build_connection_strings(
                 }
             }
             
-            if attempt < 30 {
-                ctx.trace_info(format!("Waiting for LoadBalancer IP (attempt {}/60)...", attempt));
+            if attempt < 24 {
+                ctx.trace_info(format!("Waiting for LoadBalancer IP (attempt {}/24)...", attempt));
                 tokio::time::sleep(Duration::from_secs(5)).await;
             }
         }

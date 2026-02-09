@@ -24,6 +24,10 @@ spec:
         prometheus.io/path: "/metrics"
     spec:
       serviceAccountName: toygres-server
+      tolerations:
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+          effect: "NoSchedule"
       containers:
         - name: server
           image: ${ACR_NAME}.azurecr.io/toygres-server:latest

@@ -21,6 +21,11 @@ spec:
         instance: {{ name }}
         image-type: {{ image_type }}
     spec:
+      tolerations:
+      - key: "kubernetes.azure.com/scalesetpriority"
+        operator: "Equal"
+        value: "spot"
+        effect: "NoSchedule"
       {% if image_type == "pg_durable" or needs_acr_secret %}
       imagePullSecrets:
       - name: acr-secret

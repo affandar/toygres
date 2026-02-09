@@ -19,55 +19,60 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
         // v1.0.5: Unified orchestration with inlined restore logic
         .register_typed(
             create_instance::NAME,
-            create_instance::create_instance_1_0_5,
+            create_instance::create_instance_1_0_5_orchestration,
         )
         .register_typed(
             delete_instance::NAME,
-            delete_instance::delete_instance_orchestration,
+            delete_instance::delete_instance_1_0_0_orchestration,
         )
         // v1.0.1: CMS updates now propagate errors (schema-qualified enums)
         .register_versioned_typed(
             delete_instance::NAME,
             "1.0.1",
-            delete_instance::delete_instance_1_0_1,
+            delete_instance::delete_instance_1_0_1_orchestration,
         )
         // v1.0.2: Send InstanceDeleted signal to actor before cleanup
         .register_versioned_typed(
             delete_instance::NAME,
             "1.0.2",
-            delete_instance::delete_instance_1_0_2,
+            delete_instance::delete_instance_1_0_2_orchestration,
         )
         .register_typed(
             instance_actor::NAME,
-            instance_actor::instance_actor_orchestration,
+            instance_actor::instance_actor_1_0_0_orchestration,
+        )
+        .register_versioned_typed(
+            instance_actor::NAME,
+            "1.0.1",
+            instance_actor::instance_actor_1_0_1_orchestration,
         )
         .register_typed(
             system_pruner::NAME,
-            system_pruner::system_pruner_orchestration,
+            system_pruner::system_pruner_1_0_0_orchestration,
         )
         // Register v1.0.1 of system pruner (2 min timer, keep 2 executions)
         .register_versioned_typed(
             system_pruner::NAME,
             "1.0.1",
-            system_pruner::system_pruner_1_0_1,
+            system_pruner::system_pruner_1_0_1_orchestration,
         )
         // Register v1.0.2 of system pruner (5 min timer, keep 2 executions)
         .register_versioned_typed(
             system_pruner::NAME,
             "1.0.2",
-            system_pruner::system_pruner_1_0_2,
+            system_pruner::system_pruner_1_0_2_orchestration,
         )
         // Register v1.0.3 of system pruner (uses system-prune-2, keep 3 executions)
         .register_versioned_typed(
             system_pruner::NAME,
             "1.0.3",
-            system_pruner::system_pruner_1_0_3,
+            system_pruner::system_pruner_1_0_3_orchestration,
         )
         // Register v1.0.4 of system pruner (1 min timer, uses system-prune-2, keep 3 executions)
         .register_versioned_typed(
             system_pruner::NAME,
             "1.0.4",
-            system_pruner::system_pruner_1_0_4,
+            system_pruner::system_pruner_1_0_4_orchestration,
         )
         // Image orchestrations
         .register_typed(

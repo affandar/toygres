@@ -16,7 +16,7 @@ use crate::activity_types::ImageType;
 pub const NAME: &str = "toygres-orchestrations::activity::deploy-postgres-from-pvc";
 
 /// Default ACR for pg_durable images
-const DEFAULT_PG_DURABLE_REGISTRY: &str = "toygresacr.azurecr.io";
+const DEFAULT_PG_DURABLE_REGISTRY: &str = "toygresaksacr.azurecr.io";
 
 /// Input for the deploy_postgres_from_pvc activity
 #[derive(Debug, Clone, Serialize, Deserialize)]

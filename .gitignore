@@ -28,3 +28,7 @@ scripts/*.log
 # Process IDs
 .pids/
 
+.env.backup*
+*.key
+*.crt
+*.pem

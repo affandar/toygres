@@ -12,7 +12,7 @@ use tera::{Tera, Context as TeraContext};
 pub const NAME: &str = "toygres-orchestrations::activity::deploy-postgres";
 
 /// Default ACR for pg_durable images
-const DEFAULT_PG_DURABLE_REGISTRY: &str = "toygresacr.azurecr.io";
+const DEFAULT_PG_DURABLE_REGISTRY: &str = "toygresaksacr.azurecr.io";
 
 /// Get the Docker image based on image type
 fn get_image(input: &DeployPostgresInput) -> String {

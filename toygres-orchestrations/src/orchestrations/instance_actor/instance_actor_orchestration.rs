@@ -15,8 +15,6 @@
 
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 
-/// Orchestration name for registration and scheduling
-pub const NAME: &str = "toygres-orchestrations::orchestration::instance-actor";
 use std::time::Duration;
 
 use crate::activities::{self, cms};
@@ -28,18 +26,19 @@ use crate::activity_types::{
 };
 use crate::types::InstanceActorInput;
 
-pub async fn instance_actor_orchestration(
+/// v1.0.1: Never-die actor — all failures handled gracefully with continue-as-new
+pub async fn instance_actor_1_0_1_orchestration(
     ctx: OrchestrationContext,
     input: InstanceActorInput,
 ) -> Result<(), String> {
     ctx.trace_info(format!(
-        "Instance actor iteration for: {} (orchestration: {})",
+        "[v1.0.1] Instance actor iteration for: {} (orchestration: {})",
         input.k8s_name, input.orchestration_id
     ));
     
     // Step 1: Get instance connection string from CMS
-    // Use built-in retry with exponential backoff for resilience against transient DB issues
-    let conn_info = ctx
+    // On failure, wait and continue-as-new instead of dying
+    let conn_info = match ctx
         .schedule_activity_with_retry_typed::<GetInstanceConnectionInput, GetInstanceConnectionOutput>(
                 cms::get_instance_connection::NAME,
                 &GetInstanceConnectionInput {
@@ -54,36 +53,39 @@ pub async fn instance_actor_orchestration(
                 .with_timeout(Duration::from_secs(30)),
         )
         .await
-        .map_err(|e| format!("Failed to get instance connection after 3 retries: {}", e))?;
+    {
+        Ok(info) => info,
+        Err(e) => {
+            ctx.trace_warn(format!("[v1.0.1] Failed to get instance connection: {}. Will retry next cycle.", e));
+            ctx.schedule_timer(Duration::from_secs(30)).await;
+            let input_json = serde_json::to_string(&input)
+                .map_err(|e| format!("Failed to serialize input: {}", e))?;
+            ctx.continue_as_new(input_json).await
+                .map_err(|e| format!("Failed to continue as new: {}", e))?;
+            return Ok(());
+        }
+    };
     
     // Step 2: Check if instance still exists
     if !conn_info.found {
-        ctx.trace_info("Instance no longer exists in CMS, stopping instance actor");
-        // Complete successfully - instance is truly gone
+        ctx.trace_info("[v1.0.1] Instance no longer exists in CMS, stopping instance actor");
         return Ok(());
     }
     
-    // If instance is in "deleting" state, continue monitoring until it actually disappears
-    // The delete orchestration will eventually remove the CMS record, triggering the above exit
     if let Some(state) = &conn_info.state {
         if state == "deleting" {
-            ctx.trace_info("Instance is being deleted, will keep monitoring until removed from CMS");
-            // Continue to monitor during deletion
+            ctx.trace_info("[v1.0.1] Instance is being deleted, will keep monitoring until removed from CMS");
         } else if state == "deleted" {
-            // Shouldn't normally reach here, but if we do, wait for CMS record removal
-            ctx.trace_info("Instance marked as deleted, waiting for CMS record removal");
+            ctx.trace_info("[v1.0.1] Instance marked as deleted, waiting for CMS record removal");
         }
     }
     
     let connection_string = match conn_info.connection_string {
         Some(conn) => conn,
         None => {
-            ctx.trace_warn("No connection string available yet, skipping health check");
+            ctx.trace_warn("[v1.0.1] No connection string available yet, skipping health check");
             
-            // Still continue-as-new to try again later
             ctx.schedule_timer(Duration::from_secs(30)).await;
-            ctx.trace_info("Restarting instance actor with continue-as-new");
-            
             let input_json = serde_json::to_string(&input)
                 .map_err(|e| format!("Failed to serialize input: {}", e))?;
             ctx.continue_as_new(input_json).await
@@ -93,7 +95,6 @@ pub async fn instance_actor_orchestration(
     };
     
     // Step 3: Test connection and measure response time
-    // Use retry with linear backoff - database might be temporarily busy
     let start_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
@@ -121,17 +122,17 @@ pub async fn instance_actor_orchestration(
     // Step 4: Determine health status and extract details
     let (status, postgres_version, error_message) = match health_result {
         Ok(output) => {
-            ctx.trace_info(format!("Health check passed ({}ms)", response_time_ms));
+            ctx.trace_info(format!("[v1.0.1] Health check passed ({}ms)", response_time_ms));
             ("healthy", Some(output.version), None)
         }
         Err(e) => {
-            ctx.trace_warn(format!("Health check failed: {}", e));
+            ctx.trace_warn(format!("[v1.0.1] Health check failed: {}", e));
             ("unhealthy", None, Some(e.to_string()))
         }
     };
     
-    // Step 5: Record health check in database
-    let _record = ctx
+    // Step 5: Record health check — log warning on failure but don't die
+    if let Err(e) = ctx
         .schedule_activity_typed::<RecordHealthCheckInput, RecordHealthCheckOutput>(
             cms::record_health_check::NAME,
             &RecordHealthCheckInput {
@@ -143,10 +144,12 @@ pub async fn instance_actor_orchestration(
             },
         )
         .await
-        .map_err(|e| format!("Failed to record health check: {}", e))?;
+    {
+        ctx.trace_warn(format!("[v1.0.1] Failed to record health check: {}. Continuing.", e));
+    }
     
-    // Step 6: Update instance health status
-    let _update = ctx
+    // Step 6: Update instance health status — log warning on failure but don't die
+    if let Err(e) = ctx
         .schedule_activity_typed::<UpdateInstanceHealthInput, UpdateInstanceHealthOutput>(
             cms::update_instance_health::NAME,
             &UpdateInstanceHealthInput {
@@ -155,9 +158,11 @@ pub async fn instance_actor_orchestration(
             },
         )
         .await
-        .map_err(|e| format!("Failed to update instance health: {}", e))?;
+    {
+        ctx.trace_warn(format!("[v1.0.1] Failed to update instance health: {}. Continuing.", e));
+    }
     
-    ctx.trace_info(format!("Health check complete, status: {}", status));
+    ctx.trace_info(format!("[v1.0.1] Health check complete, status: {}", status));
     
     // Step 7: Wait for either 30 seconds OR deletion signal (whichever comes first)
     let timer = ctx.schedule_timer(Duration::from_secs(30));
@@ -166,26 +171,19 @@ pub async fn instance_actor_orchestration(
     use duroxide::Either2;
     match ctx.select2(timer, deletion_signal).await {
         Either2::First(()) => {
-            // Timer fired - continue to continue_as_new logic below
+            // Timer fired
         }
         Either2::Second(_) => {
-            // Deletion signal received - exit gracefully
-            ctx.trace_info("Received InstanceDeleted signal, stopping instance actor gracefully");
+            ctx.trace_info("[v1.0.1] Received InstanceDeleted signal, stopping instance actor gracefully");
             return Ok(());
         }
     }
     
-    // Timer fired - continue as new for next health check cycle
-    ctx.trace_info("Health check cycle complete, restarting instance actor with continue-as-new");
-    
-    // Step 8: Continue as new to prevent unbounded history growth
-    // This ends the current execution and starts a fresh one with the same input
+    // Step 8: Continue as new
+    ctx.trace_info("[v1.0.1] Health check cycle complete, restarting instance actor with continue-as-new");
     let input_json = serde_json::to_string(&input)
         .map_err(|e| format!("Failed to serialize input: {}", e))?;
-    
-    // Return immediately after continue_as_new (the runtime will restart this orchestration)
     ctx.continue_as_new(input_json).await
         .map_err(|e| format!("Failed to continue as new: {}", e))?;
     Ok(())
 }
-

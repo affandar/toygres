@@ -2,10 +2,8 @@
 
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 
-/// Orchestration name for registration and scheduling
-pub const NAME: &str = "toygres-orchestrations::orchestration::create-instance";
 use uuid::Uuid;
-use super::{delete_instance, instance_actor};
+use crate::orchestrations::{delete_instance, instance_actor};
 use crate::types::{CreateInstanceInput, CreateInstanceOutput, DeleteInstanceInput, InstanceActorInput};
 use crate::activities::{self, cms};
 use std::time::Duration;
@@ -36,7 +34,7 @@ use crate::activities::deploy_postgres_from_pvc::{DeployPostgresFromPvcInput, De
 /// Features:
 /// - Normal creation with runtime image override support
 /// - Restore from backup image (inlined, no delegation to older versions)
-pub async fn create_instance_1_0_5(
+pub async fn create_instance_1_0_5_orchestration(
     ctx: OrchestrationContext,
     input: CreateInstanceInput,
 ) -> Result<CreateInstanceOutput, String> {
@@ -731,6 +729,7 @@ fn extract_storage_account(blob_url: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::activity_types::ImageType;
 
     #[test]
     fn test_create_instance_input_serialization() {
