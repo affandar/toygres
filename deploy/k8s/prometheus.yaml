@@ -86,6 +86,10 @@ spec:
         app.kubernetes.io/component: monitoring
     spec:
       serviceAccountName: prometheus
+      tolerations:
+        - key: "CriticalAddonsOnly"
+          operator: "Exists"
+          effect: "NoSchedule"
       containers:
         - name: prometheus
           image: prom/prometheus:v2.51.0

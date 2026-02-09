@@ -17,9 +17,16 @@ use crate::orchestrations::{create_instance, delete_instance, instance_actor, sy
 pub fn create_orchestration_registry() -> OrchestrationRegistry {
     OrchestrationRegistry::builder()
         // v1.0.5: Unified orchestration with inlined restore logic
-        .register_typed(
+        .register_versioned_typed(
             create_instance::NAME,
+            "1.0.5",
             create_instance::create_instance_1_0_5_orchestration,
+        )
+        // v1.0.6: Doubled pod ready timeout (60 → 120 attempts / 5min → 10min)
+        .register_versioned_typed(
+            create_instance::NAME,
+            "1.0.6",
+            create_instance::create_instance_1_0_6_orchestration,
         )
         .register_typed(
             delete_instance::NAME,
