@@ -1,7 +1,6 @@
-````skill
 ---
 name: duroxide-orchestration-versioning
-description: Guidance for safely versioning Duroxide orchestrations (immutability, adding new versions, registry registration, and rollout behavior).
+description: Guidance for safely versioning Duroxide orchestrations — file structure, naming conventions, workflow, and registry registration.
 ---
 
 # Duroxide Orchestration Versioning (Toygres)
@@ -25,52 +24,102 @@ Create a new orchestration version for **any** logic change, including "small fi
 - Adding/removing timers
 - Changing helper functions invoked by orchestrations
 
-## Recommended Workflow (Diff‑Friendly)
+## File & Folder Structure
 
-When adding a new version, use this pattern to keep diffs readable:
+Each orchestration lives in its own folder under `toygres-orchestrations/src/orchestrations/`:
 
-Assume the current latest is `1.0.2` and the function is `myorch_1_0_2()`.
-
-To bump to `1.0.3`:
-
-1. **Copy** the current `myorch_1_0_2()` and paste it just below the existing function (this preserves the old implementation).
-2. Go back to the original function (still in its original location), **rename it** from `myorch_1_0_2()` → `myorch_1_0_3()`.
-3. Make your code changes inside the renamed `myorch_1_0_3()`.
-4. Register the new version in the orchestration registry.
-
-This keeps the "latest code" in the same spot in the file so git diffs show the real delta instead of a huge move/add.
-
-Example:
-
-```rust
-// Step 1: Copy v1.0.2 just below (preserve old behavior)
-pub async fn myorch_1_0_2(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
-  ctx.trace_info("[v1.0.2] ...");
-  // DO NOT MODIFY AFTER DEPLOY
-}
-
-// Step 2: Rename the original to v1.0.3 and change it in-place
-pub async fn myorch_1_0_3(ctx: OrchestrationContext, input: Input) -> Result<Output, String> {
-  ctx.trace_info("[v1.0.3] ...");
-  // New logic
-}
+```
+instance_actor/
+  mod.rs                                    # Wiring only: NAME const, pub mod, pub use
+  instance_actor_orchestration.rs           # Latest version code (currently v1.0.2)
+  instance_actor_1_0_1_orchestration.rs     # Frozen v1.0.1
+  instance_actor_1_0_0_orchestration.rs     # Frozen v1.0.0
 ```
 
-Registry:
+### Naming Conventions
+
+| Item | Pattern | Example |
+|---|---|---|
+| **Function name** (all versions) | `{name}_{version}_orchestration` | `instance_actor_1_0_2_orchestration` |
+| **Latest file** | `{name}_orchestration.rs` | `instance_actor_orchestration.rs` |
+| **Frozen file** | `{name}_{version}_orchestration.rs` | `instance_actor_1_0_1_orchestration.rs` |
+
+### mod.rs Structure (Wiring Only)
+
+`mod.rs` contains **no orchestration logic** — only wiring:
 
 ```rust
-OrchestrationRegistry::builder()
-  .register_typed(NAME, my_orch_v1_0_0)                 // original
-  .register_versioned_typed(NAME, "1.0.1", my_orch_1_0_1)
-  .register_versioned_typed(NAME, "1.0.2", my_orch_1_0_2)
-  .register_versioned_typed(NAME, "1.0.3", my_orch_1_0_3) // latest
-  .build();
+/// Orchestration name for registration and scheduling
+pub const NAME: &str = "toygres-orchestrations::orchestration::instance-actor";
+
+pub mod instance_actor_1_0_0_orchestration;
+pub mod instance_actor_1_0_1_orchestration;
+mod instance_actor_orchestration;
+
+pub use instance_actor_1_0_0_orchestration::instance_actor_1_0_0_orchestration;
+pub use instance_actor_1_0_1_orchestration::instance_actor_1_0_1_orchestration;
+pub use instance_actor_orchestration::instance_actor_1_0_2_orchestration;
+```
+
+Note: frozen versions are `pub mod` (needed by registry), latest is `mod` (re-exported via `pub use`).
+
+Shared helper functions (e.g., `update_cms_state` in `delete_instance`) may live in `mod.rs` since they are shared utilities, not orchestration logic.
+
+## Workflow: Adding a New Version
+
+Assume the current latest is v1.0.1 and you want to add v1.0.2.
+
+### Step 1: Freeze the current latest
+
+```bash
+cp instance_actor_orchestration.rs instance_actor_1_0_1_orchestration.rs
+```
+
+This frozen copy is byte-for-byte identical. Git shows it as all `+` lines (a new file) — reviewers can ignore it.
+
+### Step 2: Modify the latest file in place
+
+In `instance_actor_orchestration.rs`:
+- Rename the function: `instance_actor_1_0_1_orchestration` → `instance_actor_1_0_2_orchestration`
+- Update version prefixes in log messages: `[v1.0.1]` → `[v1.0.2]`
+- Make your actual code changes
+
+Git diff shows clean `-`/`+` pairs for every real change — exactly what reviewers need.
+
+### Step 3: Update mod.rs wiring
+
+Add the new frozen module and update re-exports:
+
+```rust
+pub mod instance_actor_1_0_0_orchestration;
+pub mod instance_actor_1_0_1_orchestration;  // ← new frozen module
+mod instance_actor_orchestration;
+
+pub use instance_actor_1_0_0_orchestration::instance_actor_1_0_0_orchestration;
+pub use instance_actor_1_0_1_orchestration::instance_actor_1_0_1_orchestration;  // ← new
+pub use instance_actor_orchestration::instance_actor_1_0_2_orchestration;        // ← updated
+```
+
+### Step 4: Register in registry.rs
+
+```rust
+.register_versioned_typed(
+    instance_actor::NAME,
+    "1.0.2",
+    instance_actor::instance_actor_1_0_2_orchestration,
+)
+```
+
+### Step 5: Build and verify
+
+```bash
+cargo build --workspace
 ```
 
 ## Logging Convention
 
 Prefix all orchestration logs with the version for debugging:
-- `ctx.trace_info("[v1.0.3] ...")`
+- `ctx.trace_info("[v1.0.2] ...")`
 
 ## Version Selection + Rollout Behavior
 
@@ -80,15 +129,17 @@ Prefix all orchestration logs with the version for debugging:
 ## Safe Refactors
 
 If you want to "refactor" orchestration code:
-- Do it by **adding a new version** (e.g., `1.0.5`) with the refactor.
+- Do it by **adding a new version** with the refactor.
 - Do **not** modify earlier versions.
 
 ## Checklist
 
 Before shipping:
-- Added `*_1_0_{new}` function with `[vX.Y.Z]` logs
-- Registered it via `.register_versioned_typed(NAME, "X.Y.Z", ...)`
-- No changes to existing versioned orchestration functions
-- `cargo build --workspace` passes
+- [ ] Copied latest to frozen file (`{name}_{old_version}_orchestration.rs`)
+- [ ] Renamed function in latest file to new version
+- [ ] Updated `[vX.Y.Z]` log prefixes
+- [ ] Updated `mod.rs` (added frozen module, updated re-export)
+- [ ] Registered via `.register_versioned_typed(NAME, "X.Y.Z", ...)`
+- [ ] No changes to any frozen orchestration files
+- [ ] `cargo build --workspace` passes
 
-````

@@ -1,4 +1,3 @@
-````skill
 ---
 name: duroxide-orchestrations
 description: Writing durable workflows using Duroxide in Rust. Use when creating orchestrations, activities, workflows, or when the user mentions duroxide, durable functions, or workflow orchestration.
@@ -296,4 +295,3 @@ ctx.trace_error(format!("Error: {}", error));
 9. **Composition**: Use sub-orchestrations for reusable workflows
 10. **Background Tasks**: Use detached orchestrations for fire-and-forget
 
-````

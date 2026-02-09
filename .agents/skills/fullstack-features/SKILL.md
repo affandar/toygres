@@ -1,4 +1,3 @@
-````skill
 ---
 name: fullstack-features
 description: Building full-stack features in Toygres from UI to database. Use when adding new features, API endpoints, React components, or implementing end-to-end functionality.
@@ -109,4 +108,3 @@ For adding a new "catalog" of entities (like runtime images):
 
 See `database-changes` skill for detailed SQL patterns.
 
-````

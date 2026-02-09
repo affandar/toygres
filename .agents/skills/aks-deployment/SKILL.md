@@ -1,4 +1,3 @@
-````skill
 ---
 name: aks-deployment
 description: Deploying and debugging Toygres on AKS (Azure Kubernetes Service). Use when deploying, debugging pods, viewing logs, troubleshooting SSL, or managing Kubernetes resources.
@@ -123,4 +122,3 @@ for attempt in 1..=24 {
 }
 ```
 
-````

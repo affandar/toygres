@@ -1,4 +1,3 @@
-````skill
 ---
 name: instance-actors
 description: Managing instance actor orchestrations for PostgreSQL health monitoring. Use when debugging stale actors, restarting actors, or troubleshooting health check issues.
@@ -80,4 +79,3 @@ If duroxide state wasn't migrated, all actors are orphaned:
 1. List all running instances
 2. For each, call `/api/instances/:name/actor/start`
 
-````

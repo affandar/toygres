@@ -1,4 +1,3 @@
-````skill
 ---
 name: database-changes
 description: Making database schema changes to the CMS database. Use when adding columns, tables, running migrations, or updating the backend API and TypeScript types for new database fields.
@@ -159,4 +158,3 @@ UPDATE table SET state = 'new_state'
 WHERE id = $1 AND state = 'expected_state';
 ```
 
-````

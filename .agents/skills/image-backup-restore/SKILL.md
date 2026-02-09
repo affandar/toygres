@@ -1,4 +1,3 @@
-````skill
 ---
 name: image-backup-restore
 description: Implementing and debugging PostgreSQL image backup and restore features. Use when working with database snapshots, backup jobs, restore operations, azcopy blob transfers, or troubleshooting image-related provisioning failures.
@@ -187,4 +186,3 @@ POST /api/instances
 
 Note: `source_image_id` cannot be combined with `runtime_image_id` or `image_override`.
 
-````
