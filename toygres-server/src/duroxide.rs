@@ -88,6 +88,7 @@ pub async fn initialize() -> Result<(Arc<Runtime>, Arc<PostgresProvider>)> {
             .unwrap_or_else(|_| "debug".to_string()),
         service_name: "toygres".to_string(),
         service_version: Some(env!("CARGO_PKG_VERSION").to_string()),
+        ..Default::default()
     };
     
     tracing::info!(
