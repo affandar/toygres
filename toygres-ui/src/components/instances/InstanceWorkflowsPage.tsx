@@ -20,7 +20,7 @@ export function InstanceWorkflowsPage() {
   }
 
   if (isLoading) {
-    return <div>Loading...</div>;
+    return <div className="flex items-center justify-center h-64 text-muted-foreground">Loading...</div>;
   }
 
   if (!instance) {
@@ -65,7 +65,9 @@ export function InstanceWorkflowsPage() {
         </Button>
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Durable SQL Functions</h1>
-          <p className="text-sm text-muted-foreground">Instance: {name}</p>
+          <p className="text-sm text-muted-foreground">
+            Instance: {name} · Manage, monitor, and create durable functions
+          </p>
         </div>
       </div>
 

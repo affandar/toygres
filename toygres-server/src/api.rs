@@ -50,8 +50,15 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances/:name/actor/cancel", post(cancel_instance_actor))
         .route("/api/instances/:name/logs", get(get_instance_logs))
         .route("/api/instances/:name/durable-orchestrations", get(get_pg_durable_orchestrations))
+        .route("/api/instances/:name/durable-orchestrations/metrics", get(get_pg_durable_metrics))
+        .route("/api/instances/:name/durable-orchestrations/run", post(run_pg_durable))
+        .route("/api/instances/:name/durable-orchestrations/start", post(start_pg_durable_function))
         .route("/api/instances/:name/durable-orchestrations/:instance_id/nodes", get(get_pg_durable_instance_nodes))
         .route("/api/instances/:name/durable-orchestrations/:instance_id/explain", get(get_pg_durable_explain))
+        .route("/api/instances/:name/durable-orchestrations/:instance_id/info", get(get_pg_durable_instance_info))
+        .route("/api/instances/:name/durable-orchestrations/:instance_id/executions", get(get_pg_durable_instance_executions))
+        .route("/api/instances/:name/durable-orchestrations/:instance_id/cancel", post(cancel_pg_durable_instance))
+        .route("/api/instances/:name/durable-orchestrations/:instance_id/signal", post(signal_pg_durable_instance))
         .route("/api/server/orchestrations", get(list_orchestrations))
         .route("/api/server/orchestrations/:id", get(get_orchestration))
         .route("/api/server/orchestrations/:id/cancel", post(cancel_orchestration))
@@ -1477,86 +1484,92 @@ fn default_pg_durable_limit() -> i64 {
     50
 }
 
-/// Get pg_durable orchestration executions from a PostgreSQL instance
-/// This connects to the instance's PostgreSQL and queries the df schema
-async fn get_pg_durable_orchestrations(
-    State(_state): State<AppState>,
-    Path(name): Path<String>,
-    Query(query): Query<PgDurableQuery>,
-) -> Result<Json<serde_json::Value>, AppError> {
+#[derive(Debug, serde::Deserialize)]
+struct InstanceNodesQuery {
+    #[serde(default = "default_executions")]
+    executions: i32,
+}
+
+fn default_executions() -> i32 {
+    5
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct InstanceExecutionsQuery {
+    #[serde(default = "default_executions")]
+    limit: i32,
+}
+
+/// Connect to a pg_durable instance's PostgreSQL, validating it exists, is pg_durable, and is running.
+async fn connect_to_pg_durable_instance(name: &str) -> Result<sqlx::PgPool, AppError> {
     use anyhow::Context;
     use sqlx::postgres::PgPoolOptions;
-    
-    // First, look up the instance to get its connection string and verify it's a pg_durable instance
+
     let db_url = std::env::var("DATABASE_URL")
         .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
-    
+
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&db_url)
         .await
         .context("Failed to connect to database")
         .map_err(|e| AppError::Internal(e.to_string()))?;
-    
+
     let row = sqlx::query_as::<_, (String, Option<String>, String)>(
         "SELECT image_type::text, dns_connection_string, state::text
          FROM toygres_cms.instances 
          WHERE dns_name = $1 AND state != 'deleted'
          LIMIT 1"
     )
-    .bind(&name)
+    .bind(name)
     .fetch_optional(&pool)
     .await
     .context("Failed to query instance")
     .map_err(|e| AppError::Internal(e.to_string()))?;
-    
+
     let (image_type, connection_string, state) = match row {
         Some(row) => row,
         None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
     };
-    
-    // Verify this is a pg_durable instance
+
     if image_type != "pg_durable" {
         return Err(AppError::BadRequest(format!(
-            "Instance '{}' is not a pg_durable instance (image_type: {}). Durable orchestrations are only available for pg_durable instances.",
+            "Instance '{}' is not a pg_durable instance (image_type: {})",
             name, image_type
         )));
     }
-    
-    // Verify instance is running
+
     if state != "running" {
         return Err(AppError::BadRequest(format!(
-            "Instance '{}' is not running (state: {}). Cannot query durable orchestrations.",
+            "Instance '{}' is not running (state: {})",
             name, state
         )));
     }
-    
+
     let connection_string = connection_string.ok_or_else(|| {
         AppError::Internal("Instance has no connection string".to_string())
     })?;
-    
-    // Connect to the pg_durable instance
-    let instance_pool = PgPoolOptions::new()
+
+    PgPoolOptions::new()
         .max_connections(2)
         .acquire_timeout(std::time::Duration::from_secs(10))
         .connect(&connection_string)
         .await
-        .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
-    
-    // Query the pg_durable instances using df.list_instances() function
+        .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))
+}
+
+/// List pg_durable function instances
+async fn get_pg_durable_orchestrations(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+    Query(query): Query<PgDurableQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
     let status_filter = query.status.as_deref();
-    
     let functions = sqlx::query_as::<_, (String, Option<String>, Option<String>, String, i64, Option<String>)>(
-        r#"
-        SELECT 
-            instance_id,
-            label,
-            function_name,
-            status,
-            execution_count,
-            output
-        FROM df.list_instances($1::text, $2::integer)
-        "#
+        "SELECT instance_id, label, function_name, status, execution_count, output
+         FROM df.list_instances($1::text, $2::integer)"
     )
     .bind(status_filter)
     .bind(query.limit as i32)
@@ -1570,7 +1583,7 @@ async fn get_pg_durable_orchestrations(
             AppError::Internal(format!("Failed to query pg_durable instances: {}", e))
         }
     })?;
-    
+
     let functions_json: Vec<serde_json::Value> = functions
         .into_iter()
         .map(|(instance_id, label, function_name, status, execution_count, output)| {
@@ -1584,84 +1597,23 @@ async fn get_pg_durable_orchestrations(
             })
         })
         .collect();
-    
+
     Ok(Json(serde_json::json!({
         "instance_name": name,
-        "image_type": image_type,
+        "image_type": "pg_durable",
         "count": functions_json.len(),
         "functions": functions_json,
     })))
 }
 
-#[derive(Debug, serde::Deserialize)]
-struct InstanceNodesQuery {
-    #[serde(default = "default_executions")]
-    executions: i32,
-}
-
-fn default_executions() -> i32 {
-    5
-}
-
 /// Get nodes for a specific pg_durable orchestration instance
-/// Calls df.instance_nodes(instance_id, last_n_executions) function
 async fn get_pg_durable_instance_nodes(
     State(_state): State<AppState>,
     Path((name, instance_id)): Path<(String, String)>,
     Query(query): Query<InstanceNodesQuery>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    use anyhow::Context;
-    use sqlx::postgres::PgPoolOptions;
-    
-    // First, look up the instance to get its connection string
-    let db_url = std::env::var("DATABASE_URL")
-        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
-    
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&db_url)
-        .await
-        .context("Failed to connect to database")
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    
-    let row = sqlx::query_as::<_, (String, Option<String>, String)>(
-        "SELECT image_type::text, dns_connection_string, state::text
-         FROM toygres_cms.instances 
-         WHERE dns_name = $1 AND state != 'deleted'
-         LIMIT 1"
-    )
-    .bind(&name)
-    .fetch_optional(&pool)
-    .await
-    .context("Failed to query instance")
-    .map_err(|e| AppError::Internal(e.to_string()))?;
-    
-    let (image_type, connection_string, state) = match row {
-        Some(row) => row,
-        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
-    };
-    
-    if image_type != "pg_durable" {
-        return Err(AppError::BadRequest("Not a pg_durable instance".to_string()));
-    }
-    
-    if state != "running" {
-        return Err(AppError::BadRequest(format!("Instance is not running (state: {})", state)));
-    }
-    
-    let connection_string = connection_string.ok_or_else(|| {
-        AppError::Internal("Instance has no connection string".to_string())
-    })?;
-    
-    // Connect to the pg_durable instance
-    let instance_pool = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(&connection_string)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
-    
-    // Call df.instance_nodes(instance_id, last_n_executions)
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
     let nodes = sqlx::query_as::<_, (i64, String, String, Option<String>, Option<String>, Option<String>, Option<String>, String, Option<String>)>(
         "SELECT execution_id, node_id, node_type, query, result_name, left_node, right_node, status, result 
          FROM df.instance_nodes($1, $2)"
@@ -1671,7 +1623,7 @@ async fn get_pg_durable_instance_nodes(
     .fetch_all(&instance_pool)
     .await
     .map_err(|e| AppError::Internal(format!("Failed to query instance nodes: {}", e)))?;
-    
+
     let nodes_json: Vec<serde_json::Value> = nodes
         .into_iter()
         .map(|(execution_id, node_id, node_type, query, result_name, left_node, right_node, status, result)| {
@@ -1688,7 +1640,7 @@ async fn get_pg_durable_instance_nodes(
             })
         })
         .collect();
-    
+
     Ok(Json(serde_json::json!({
         "pg_instance_name": name,
         "orchestration_instance_id": instance_id,
@@ -1699,75 +1651,254 @@ async fn get_pg_durable_instance_nodes(
 }
 
 /// Get explain output for a specific pg_durable orchestration instance
-/// Calls df.explain(instance_id) function for visualization
 async fn get_pg_durable_explain(
     State(_state): State<AppState>,
     Path((name, instance_id)): Path<(String, String)>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    use anyhow::Context;
-    use sqlx::postgres::PgPoolOptions;
-    
-    // First, look up the instance to get its connection string
-    let db_url = std::env::var("DATABASE_URL")
-        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
-    
-    let pool = PgPoolOptions::new()
-        .max_connections(5)
-        .connect(&db_url)
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let result = sqlx::query_as::<_, (String,)>("SELECT df.explain($1)")
+        .bind(&instance_id)
+        .fetch_one(&instance_pool)
         .await
-        .context("Failed to connect to database")
-        .map_err(|e| AppError::Internal(e.to_string()))?;
-    
-    let row = sqlx::query_as::<_, (String, Option<String>, String)>(
-        "SELECT image_type::text, dns_connection_string, state::text
-         FROM toygres_cms.instances 
-         WHERE dns_name = $1 AND state != 'deleted'
-         LIMIT 1"
-    )
-    .bind(&name)
-    .fetch_optional(&pool)
-    .await
-    .context("Failed to query instance")
-    .map_err(|e| AppError::Internal(e.to_string()))?;
-    
-    let (image_type, connection_string, state) = match row {
-        Some(row) => row,
-        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
-    };
-    
-    if image_type != "pg_durable" {
-        return Err(AppError::BadRequest("Not a pg_durable instance".to_string()));
-    }
-    
-    if state != "running" {
-        return Err(AppError::BadRequest(format!("Instance is not running (state: {})", state)));
-    }
-    
-    let connection_string = connection_string.ok_or_else(|| {
-        AppError::Internal("Instance has no connection string".to_string())
-    })?;
-    
-    // Connect to the pg_durable instance
-    let instance_pool = PgPoolOptions::new()
-        .max_connections(2)
-        .acquire_timeout(std::time::Duration::from_secs(10))
-        .connect(&connection_string)
-        .await
-        .map_err(|e| AppError::Internal(format!("Failed to connect to pg_durable instance: {}", e)))?;
-    
-    // Call df.explain(instance_id)
-    let result = sqlx::query_as::<_, (String,)>(
-        "SELECT df.explain($1)"
-    )
-    .bind(&instance_id)
-    .fetch_one(&instance_pool)
-    .await
-    .map_err(|e| AppError::Internal(format!("Failed to get explain output: {}", e)))?;
-    
+        .map_err(|e| AppError::Internal(format!("Failed to get explain output: {}", e)))?;
+
     Ok(Json(serde_json::json!({
         "pg_instance_name": name,
         "orchestration_instance_id": instance_id,
         "explain": result.0,
+    })))
+}
+
+/// Get detailed info for a specific pg_durable function instance
+async fn get_pg_durable_instance_info(
+    State(_state): State<AppState>,
+    Path((name, instance_id)): Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let row = sqlx::query_as::<_, (String, Option<String>, Option<String>, Option<String>, Option<i64>, String, Option<String>)>(
+        "SELECT instance_id, label, function_name, function_version, current_execution_id, status, output
+         FROM df.instance_info($1)"
+    )
+    .bind(&instance_id)
+    .fetch_optional(&instance_pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to get instance info: {}", e)))?;
+
+    let row = row.ok_or_else(|| AppError::NotFound(format!("Durable function '{}' not found", instance_id)))?;
+
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "instance_id": row.0,
+        "label": row.1,
+        "function_name": row.2,
+        "function_version": row.3,
+        "current_execution_id": row.4,
+        "status": row.5,
+        "output": row.6,
+    })))
+}
+
+/// Get execution history for a pg_durable function instance
+async fn get_pg_durable_instance_executions(
+    State(_state): State<AppState>,
+    Path((name, instance_id)): Path<(String, String)>,
+    Query(query): Query<InstanceExecutionsQuery>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let rows = sqlx::query_as::<_, (i64, String, i64, Option<i64>, Option<String>)>(
+        "SELECT execution_id, status, event_count, duration_ms, output
+         FROM df.instance_executions($1, $2)"
+    )
+    .bind(&instance_id)
+    .bind(query.limit)
+    .fetch_all(&instance_pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to get executions: {}", e)))?;
+
+    let executions: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(execution_id, status, event_count, duration_ms, output)| {
+            serde_json::json!({
+                "execution_id": execution_id,
+                "status": status,
+                "event_count": event_count,
+                "duration_ms": duration_ms,
+                "output": output,
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "instance_id": instance_id,
+        "count": executions.len(),
+        "executions": executions,
+    })))
+}
+
+/// Cancel a running pg_durable function instance
+async fn cancel_pg_durable_instance(
+    State(_state): State<AppState>,
+    Path((name, instance_id)): Path<(String, String)>,
+    body: Option<Json<serde_json::Value>>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let reason = body
+        .and_then(|b| b.get("reason").and_then(|v| v.as_str()).map(|s| s.to_string()))
+        .unwrap_or_else(|| "Cancelled by user".to_string());
+
+    let result = sqlx::query_as::<_, (String,)>("SELECT df.cancel($1, $2)")
+        .bind(&instance_id)
+        .bind(&reason)
+        .fetch_one(&instance_pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to cancel instance: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "instance_id": instance_id,
+        "result": result.0,
+    })))
+}
+
+/// Send a signal to a running pg_durable function instance
+async fn signal_pg_durable_instance(
+    State(_state): State<AppState>,
+    Path((name, instance_id)): Path<(String, String)>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let signal_name = body.get("signal_name")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("signal_name is required".to_string()))?;
+
+    let signal_data = body.get("signal_data")
+        .map(|v| if v.is_string() { v.as_str().unwrap().to_string() } else { v.to_string() })
+        .unwrap_or_else(|| "{}".to_string());
+
+    let result = sqlx::query_as::<_, (String,)>("SELECT df.signal($1, $2, $3)")
+        .bind(&instance_id)
+        .bind(signal_name)
+        .bind(&signal_data)
+        .fetch_one(&instance_pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to send signal: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "instance_id": instance_id,
+        "signal_name": signal_name,
+        "result": result.0,
+    })))
+}
+
+/// Get system-wide pg_durable metrics
+async fn get_pg_durable_metrics(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let row = sqlx::query_as::<_, (i64, i64, i64, i64, i64, i64)>(
+        "SELECT total_instances, running_instances, completed_instances, failed_instances, total_executions, total_events
+         FROM df.metrics()"
+    )
+    .fetch_one(&instance_pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Failed to get metrics: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "total_instances": row.0,
+        "running_instances": row.1,
+        "completed_instances": row.2,
+        "failed_instances": row.3,
+        "total_executions": row.4,
+        "total_events": row.5,
+    })))
+}
+
+/// Trigger execution of pending pg_durable functions
+async fn run_pg_durable(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let result = sqlx::query_as::<_, (String,)>("SELECT df.run()")
+        .fetch_one(&instance_pool)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to trigger run: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "result": result.0,
+    })))
+}
+
+/// Start a new pg_durable function
+async fn start_pg_durable_function(
+    State(_state): State<AppState>,
+    Path(name): Path<String>,
+    Json(body): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let instance_pool = connect_to_pg_durable_instance(&name).await?;
+
+    let expression = body.get("expression")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("expression is required".to_string()))?;
+
+    let label = body.get("label").and_then(|v| v.as_str());
+
+    // Set variables if provided
+    if let Some(vars) = body.get("variables").and_then(|v| v.as_object()) {
+        for (key, value) in vars {
+            let val_str = if value.is_string() { value.as_str().unwrap().to_string() } else { value.to_string() };
+            sqlx::query("SELECT df.setvar($1, $2)")
+                .bind(key)
+                .bind(&val_str)
+                .execute(&instance_pool)
+                .await
+                .map_err(|e| AppError::Internal(format!("Failed to set variable '{}': {}", key, e)))?;
+        }
+    }
+
+    // The expression (e.g. "df.sql('SELECT 1') ~> df.sql('SELECT 2')") must be
+    // evaluated as SQL, not passed as a string parameter. df.start() expects the
+    // result of DSL function calls. We use format! to inline it safely with the
+    // label still parameterized.
+    let query = if label.is_some() {
+        format!("SELECT df.start({}, $1)", expression)
+    } else {
+        format!("SELECT df.start({})", expression)
+    };
+
+    let result = if let Some(lbl) = label {
+        sqlx::query_as::<_, (String,)>(&query)
+            .bind(lbl)
+            .fetch_one(&instance_pool)
+            .await
+    } else {
+        sqlx::query_as::<_, (String,)>(&query)
+            .fetch_one(&instance_pool)
+            .await
+    }
+    .map_err(|e| AppError::Internal(format!("Failed to start durable function: {}", e)))?;
+
+    // Clean up variables after start
+    let _ = sqlx::query("SELECT df.clearvars()")
+        .execute(&instance_pool)
+        .await;
+
+    Ok(Json(serde_json::json!({
+        "pg_instance_name": name,
+        "instance_id": result.0,
+        "label": label,
     })))
 }
 

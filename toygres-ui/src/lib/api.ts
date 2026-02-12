@@ -125,6 +125,89 @@ export const api = {
     return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${orchestrationInstanceId}/explain`);
   },
 
+  async getPgDurableInstanceInfo(pgInstanceName: string, instanceId: string): Promise<{
+    pg_instance_name: string;
+    instance_id: string;
+    label: string | null;
+    function_name: string | null;
+    function_version: string | null;
+    current_execution_id: number | null;
+    status: string;
+    output: string | null;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${instanceId}/info`);
+  },
+
+  async getPgDurableInstanceExecutions(pgInstanceName: string, instanceId: string, limit: number = 5): Promise<{
+    pg_instance_name: string;
+    instance_id: string;
+    count: number;
+    executions: Array<{
+      execution_id: number;
+      status: string;
+      event_count: number;
+      duration_ms: number | null;
+      output: string | null;
+    }>;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${instanceId}/executions?limit=${limit}`);
+  },
+
+  async cancelPgDurableInstance(pgInstanceName: string, instanceId: string, reason?: string): Promise<{
+    pg_instance_name: string;
+    instance_id: string;
+    result: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${instanceId}/cancel`, {
+      method: 'POST',
+      body: JSON.stringify({ reason: reason || 'Cancelled by user' }),
+    });
+  },
+
+  async signalPgDurableInstance(pgInstanceName: string, instanceId: string, signalName: string, signalData?: string): Promise<{
+    pg_instance_name: string;
+    instance_id: string;
+    signal_name: string;
+    result: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/${instanceId}/signal`, {
+      method: 'POST',
+      body: JSON.stringify({ signal_name: signalName, signal_data: signalData || '{}' }),
+    });
+  },
+
+  async getPgDurableMetrics(pgInstanceName: string): Promise<{
+    pg_instance_name: string;
+    total_instances: number;
+    running_instances: number;
+    completed_instances: number;
+    failed_instances: number;
+    total_executions: number;
+    total_events: number;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/metrics`);
+  },
+
+  async runPgDurable(pgInstanceName: string): Promise<{
+    pg_instance_name: string;
+    result: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/run`, {
+      method: 'POST',
+    });
+  },
+
+  async startPgDurableFunction(pgInstanceName: string, expression: string, label?: string, variables?: Record<string, string>): Promise<{
+    pg_instance_name: string;
+    instance_id: string;
+    label: string | null;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${pgInstanceName}/durable-orchestrations/start`, {
+      method: 'POST',
+      body: JSON.stringify({ expression, label: label || null, variables: variables || undefined }),
+    });
+  },
+
   async createInstance(data: {
     name: string;
     password: string;
