@@ -555,6 +555,7 @@ async fn test_connection(
             activities::test_connection::NAME,
             &TestConnectionInput {
                 connection_string: test_connection_string,
+                k8s_name: None,
             },
             RetryPolicy::new(5)
                 .with_backoff(BackoffStrategy::Exponential {

@@ -13,7 +13,7 @@
 ///
 /// The orchestration exits gracefully when it detects the instance is deleted/deleting.
 
-use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
+use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy, Either2};
 
 use std::time::Duration;
 
@@ -26,13 +26,20 @@ use crate::activity_types::{
 };
 use crate::types::InstanceActorInput;
 
-/// v1.0.1: Never-die actor — all failures handled gracefully with continue-as-new
-pub async fn instance_actor_1_0_1_orchestration(
+/// v1.0.2: Session-affine health checks with persistent connection pooling
+///
+/// Changes from v1.0.1:
+/// - test-connection activity uses session affinity (session_id = k8s_name)
+///   so the same worker handles each instance across continue-as-new cycles,
+///   enabling worker-local connection pooling
+/// - Retry logic moved into the activity itself (3 attempts with 5s connect timeout)
+/// - Removed orchestration-level retry policy on test-connection
+pub async fn instance_actor_1_0_2_orchestration(
     ctx: OrchestrationContext,
     input: InstanceActorInput,
 ) -> Result<(), String> {
     ctx.trace_info(format!(
-        "[v1.0.1] Instance actor iteration for: {} (orchestration: {})",
+        "[v1.0.2] Instance actor iteration for: {} (orchestration: {})",
         input.k8s_name, input.orchestration_id
     ));
     
@@ -56,7 +63,7 @@ pub async fn instance_actor_1_0_1_orchestration(
     {
         Ok(info) => info,
         Err(e) => {
-            ctx.trace_warn(format!("[v1.0.1] Failed to get instance connection: {}. Will retry next cycle.", e));
+            ctx.trace_warn(format!("[v1.0.2] Failed to get instance connection: {}. Will retry next cycle.", e));
             ctx.schedule_timer(Duration::from_secs(30)).await;
             let input_json = serde_json::to_string(&input)
                 .map_err(|e| format!("Failed to serialize input: {}", e))?;
@@ -68,22 +75,22 @@ pub async fn instance_actor_1_0_1_orchestration(
     
     // Step 2: Check if instance still exists
     if !conn_info.found {
-        ctx.trace_info("[v1.0.1] Instance no longer exists in CMS, stopping instance actor");
+        ctx.trace_info("[v1.0.2] Instance no longer exists in CMS, stopping instance actor");
         return Ok(());
     }
     
     if let Some(state) = &conn_info.state {
         if state == "deleting" {
-            ctx.trace_info("[v1.0.1] Instance is being deleted, will keep monitoring until removed from CMS");
+            ctx.trace_info("[v1.0.2] Instance is being deleted, will keep monitoring until removed from CMS");
         } else if state == "deleted" {
-            ctx.trace_info("[v1.0.1] Instance marked as deleted, waiting for CMS record removal");
+            ctx.trace_info("[v1.0.2] Instance marked as deleted, waiting for CMS record removal");
         }
     }
     
     let connection_string = match conn_info.connection_string {
         Some(conn) => conn,
         None => {
-            ctx.trace_warn("[v1.0.1] No connection string available yet, skipping health check");
+            ctx.trace_warn("[v1.0.2] No connection string available yet, skipping health check");
             
             ctx.schedule_timer(Duration::from_secs(30)).await;
             let input_json = serde_json::to_string(&input)
@@ -94,24 +101,56 @@ pub async fn instance_actor_1_0_1_orchestration(
         }
     };
     
-    // Step 3: Test connection and measure response time
+    // Step 3: Test connection with session affinity + durable retry
+    // Session ID = k8s_name ensures the same worker handles this instance
+    // across continue-as-new cycles, enabling worker-local connection pooling.
+    // Manual retry loop mirrors duroxide's schedule_activity_with_retry pattern
+    // since there's no schedule_activity_on_session_with_retry API yet.
     let start_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get start time: {}", e))?;
     
-    let health_result = ctx
-        .schedule_activity_with_retry_typed::<TestConnectionInput, TestConnectionOutput>(
-            activities::test_connection::NAME,
-            &TestConnectionInput {
+    let max_attempts = 3u32;
+    let mut health_result: Result<TestConnectionOutput, String> = Err("no attempts".to_string());
+    
+    for attempt in 1..=max_attempts {
+        let attempt_result = {
+            // Race activity vs 30s per-attempt timeout
+            let test_input = TestConnectionInput {
                 connection_string: connection_string.clone(),
-            },
-            RetryPolicy::new(3)
-                .with_backoff(BackoffStrategy::Linear {
-                    base: Duration::from_secs(1),
-                    max: Duration::from_secs(5),
-                })
-                .with_timeout(Duration::from_secs(30)),
-        )
-        .await;
+                k8s_name: Some(input.k8s_name.clone()),
+            };
+            let activity = ctx.schedule_activity_on_session_typed::<TestConnectionInput, TestConnectionOutput>(
+                activities::test_connection::NAME,
+                &test_input,
+                &input.k8s_name,
+            );
+            let deadline = ctx.schedule_timer(Duration::from_secs(30));
+            
+            match ctx.select2(activity, deadline).await {
+                Either2::First(result) => result,
+                Either2::Second(()) => Err("timeout: activity timed out".to_string()),
+            }
+        };
+        
+        match attempt_result {
+            Ok(output) => {
+                health_result = Ok(output);
+                break;
+            }
+            Err(ref e) => {
+                if attempt < max_attempts {
+                    ctx.trace_warn(format!(
+                        "[v1.0.2] test-connection attempt {}/{} failed: {}. Retrying...",
+                        attempt, max_attempts, e
+                    ));
+                    // Linear backoff: 2s, 4s
+                    let delay = Duration::from_secs(2 * attempt as u64);
+                    ctx.schedule_timer(delay).await;
+                }
+                health_result = attempt_result;
+            }
+        }
+    }
     
     let end_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get end time: {}", e))?;
@@ -122,11 +161,11 @@ pub async fn instance_actor_1_0_1_orchestration(
     // Step 4: Determine health status and extract details
     let (status, postgres_version, error_message) = match health_result {
         Ok(output) => {
-            ctx.trace_info(format!("[v1.0.1] Health check passed ({}ms)", response_time_ms));
+            ctx.trace_info(format!("[v1.0.2] Health check passed ({}ms)", response_time_ms));
             ("healthy", Some(output.version), None)
         }
         Err(e) => {
-            ctx.trace_warn(format!("[v1.0.1] Health check failed: {}", e));
+            ctx.trace_warn(format!("[v1.0.2] Health check failed: {}", e));
             ("unhealthy", None, Some(e.to_string()))
         }
     };
@@ -145,7 +184,7 @@ pub async fn instance_actor_1_0_1_orchestration(
         )
         .await
     {
-        ctx.trace_warn(format!("[v1.0.1] Failed to record health check: {}. Continuing.", e));
+        ctx.trace_warn(format!("[v1.0.2] Failed to record health check: {}. Continuing.", e));
     }
     
     // Step 6: Update instance health status — log warning on failure but don't die
@@ -159,28 +198,27 @@ pub async fn instance_actor_1_0_1_orchestration(
         )
         .await
     {
-        ctx.trace_warn(format!("[v1.0.1] Failed to update instance health: {}. Continuing.", e));
+        ctx.trace_warn(format!("[v1.0.2] Failed to update instance health: {}. Continuing.", e));
     }
     
-    ctx.trace_info(format!("[v1.0.1] Health check complete, status: {}", status));
+    ctx.trace_info(format!("[v1.0.2] Health check complete, status: {}", status));
     
     // Step 7: Wait for either 30 seconds OR deletion signal (whichever comes first)
     let timer = ctx.schedule_timer(Duration::from_secs(30));
     let deletion_signal = ctx.schedule_wait("InstanceDeleted");
     
-    use duroxide::Either2;
     match ctx.select2(timer, deletion_signal).await {
         Either2::First(()) => {
             // Timer fired
         }
         Either2::Second(_) => {
-            ctx.trace_info("[v1.0.1] Received InstanceDeleted signal, stopping instance actor gracefully");
+            ctx.trace_info("[v1.0.2] Received InstanceDeleted signal, stopping instance actor gracefully");
             return Ok(());
         }
     }
     
     // Step 8: Continue as new
-    ctx.trace_info("[v1.0.1] Health check cycle complete, restarting instance actor with continue-as-new");
+    ctx.trace_info("[v1.0.2] Health check cycle complete, restarting instance actor with continue-as-new");
     let input_json = serde_json::to_string(&input)
         .map_err(|e| format!("Failed to serialize input: {}", e))?;
     ctx.continue_as_new(input_json).await

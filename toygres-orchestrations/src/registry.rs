@@ -53,6 +53,11 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             "1.0.1",
             instance_actor::instance_actor_1_0_1_orchestration,
         )
+        .register_versioned_typed(
+            instance_actor::NAME,
+            "1.0.2",
+            instance_actor::instance_actor_1_0_2_orchestration,
+        )
         .register_typed(
             system_pruner::NAME,
             system_pruner::system_pruner_1_0_0_orchestration,

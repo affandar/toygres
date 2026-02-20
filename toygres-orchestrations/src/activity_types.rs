@@ -185,6 +185,9 @@ pub struct GetConnectionStringsOutput {
 pub struct TestConnectionInput {
     /// Connection string to test
     pub connection_string: String,
+    /// Instance k8s name (used as connection pool key for session affinity)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub k8s_name: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]

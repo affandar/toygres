@@ -16,6 +16,12 @@ This applies to:
 - Helper functions called by orchestrations (also orchestration code)
 - Any change in activity scheduling order, parameters, retry policy, timers, branching logic, etc.
 
+**You MUST NOT cause ANY side effect on existing frozen orchestrations.** This includes changes to shared types (e.g., activity input/output structs) that alter serialization behavior. If you add a field to a shared struct:
+- The serialized JSON must remain **byte-for-byte identical** for existing call sites
+- Use `#[serde(default, skip_serializing_if = "Option::is_none")]` for new `Option<T>` fields so `None` is omitted (not serialized as `null`)
+- Verify by checking that `serde_json::to_string(&OldInput { field: None })` produces the same JSON as the original struct without the field
+- If you cannot make the change backward-compatible, create a new activity (e.g., `test-connection-v2`) instead of modifying the shared type
+
 ## When You MUST Create a New Version
 
 Create a new orchestration version for **any** logic change, including "small fixes":
@@ -141,5 +147,7 @@ Before shipping:
 - [ ] Updated `mod.rs` (added frozen module, updated re-export)
 - [ ] Registered via `.register_versioned_typed(NAME, "X.Y.Z", ...)`
 - [ ] No changes to any frozen orchestration files
+- [ ] Shared struct changes use `skip_serializing_if` to preserve JSON compatibility
+- [ ] Verified serialization: `None`/default values produce identical JSON to the old struct
 - [ ] `cargo build --workspace` passes
 
