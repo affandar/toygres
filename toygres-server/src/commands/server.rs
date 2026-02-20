@@ -396,7 +396,7 @@ async fn start_system_pruner(client: &std::sync::Arc<duroxide::Client>) {
     // Check if system pruner is already running
     match client.get_orchestration_status(SYSTEM_PRUNER_INSTANCE_ID).await {
         Ok(status) => {
-            if status == duroxide::OrchestrationStatus::Running {
+            if matches!(status, duroxide::OrchestrationStatus::Running { .. }) {
                 tracing::info!("System pruner is already running");
                 return;
             }
