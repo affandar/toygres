@@ -1265,7 +1265,7 @@ async fn restart_instance_actor(
         None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
     };
     
-    // Cancel existing actor if it exists
+    // Cancel or delete existing actor if it exists
     let mut cancelled_existing = false;
     if let Some(existing_id) = &existing_actor_id {
         if let Ok(info) = state.duroxide_client.get_instance_info(existing_id).await {
@@ -1274,6 +1274,11 @@ async fn restart_instance_actor(
                 if state.duroxide_client.cancel_instance(existing_id, "Restarting actor").await.is_ok() {
                     cancelled_existing = true;
                 }
+            } else if info.status == "Failed" || info.status == "Completed" || info.status == "Cancelled" {
+                // Delete terminal instances so start_orchestration (idempotent by instance_id)
+                // will create a fresh execution rather than being a no-op.
+                let _ = state.duroxide_client.delete_instance(existing_id, false).await;
+                cancelled_existing = true;
             }
         }
     }
