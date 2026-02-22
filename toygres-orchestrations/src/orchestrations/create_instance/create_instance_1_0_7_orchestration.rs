@@ -1,4 +1,5 @@
-//! Create PostgreSQL instance orchestration
+//! Create PostgreSQL instance orchestration v1.0.7
+//! Adds custom status reporting at each step for live progress visibility.
 
 use duroxide::{OrchestrationContext, RetryPolicy, BackoffStrategy};
 
@@ -26,25 +27,23 @@ use crate::activities::run_restore_job::{RunRestoreJobInput, RunRestoreJobOutput
 use crate::activities::deploy_postgres_from_pvc::{DeployPostgresFromPvcInput, DeployPostgresFromPvcOutput};
 
 // ============================================================================
-// v1.0.5 - Unified orchestration with inlined restore logic
+// v1.0.7 - Custom status reporting at every step
 // ============================================================================
 
-/// v1.0.5: Creates PostgreSQL instance with full feature support.
-///
-/// Features:
-/// - Normal creation with runtime image override support
-/// - Restore from backup image (inlined, no delegation to older versions)
-pub async fn create_instance_1_0_6_orchestration(
+/// v1.0.7: Same as v1.0.6 but with custom status for live progress.
+pub async fn create_instance_1_0_7_orchestration(
     ctx: OrchestrationContext,
     input: CreateInstanceInput,
 ) -> Result<CreateInstanceOutput, String> {
+    ctx.set_custom_status("Initializing");
     ctx.trace_info(format!(
-        "[v1.0.6] Creating PostgreSQL instance: {} (user: {}, orchestration: {}, source_image: {:?}, runtime_image: {:?})",
+        "[v1.0.7] Creating PostgreSQL instance: {} (user: {}, orchestration: {}, source_image: {:?}, runtime_image: {:?})",
         input.name, input.user_name, input.orchestration_id, input.source_image_id, input.runtime_image_id
     ));
 
     // Validate mutually exclusive options
     if input.source_image_id.is_some() && (input.runtime_image_id.is_some() || input.image_override.is_some()) {
+        ctx.set_custom_status("Failed: invalid options");
         return Err("runtime_image_id/image_override cannot be used with source_image_id restore".to_string());
     }
 
@@ -55,7 +54,8 @@ pub async fn create_instance_1_0_6_orchestration(
 
     // If restoring from image, we need to fetch image details first
     let (effective_image_type, effective_postgres_version) = if let Some(ref image_id) = input.source_image_id {
-        ctx.trace_info(format!("[v1.0.6] Fetching source image details: {}", image_id));
+        ctx.set_custom_status("Fetching source image details");
+        ctx.trace_info(format!("[v1.0.7] Fetching source image details: {}", image_id));
         let image_uuid = Uuid::parse_str(image_id)
             .map_err(|e| format!("Invalid image ID format: {}", e))?;
 
@@ -73,12 +73,13 @@ pub async fn create_instance_1_0_6_orchestration(
                     _ => ImageType::Stock,
                 };
                 ctx.trace_info(format!(
-                    "[v1.0.6] Source image: {} (type: {}, postgres: {})",
+                    "[v1.0.7] Source image: {} (type: {}, postgres: {})",
                     record.name, record.image_type, record.postgres_version
                 ));
                 (img_type, record.postgres_version)
             }
             ImageOperationResult::NotFound => {
+                ctx.set_custom_status("Failed: source image not found");
                 return Err(format!("Source image not found: {}", image_id));
             }
             other => {
@@ -90,6 +91,7 @@ pub async fn create_instance_1_0_6_orchestration(
     };
 
     // Reserve CMS record + DNS name
+    ctx.set_custom_status("Reserving CMS record");
     let cms_input = CreateInstanceRecordInput {
         user_name: input.user_name.clone(),
         k8s_name: input.name.clone(),
@@ -126,7 +128,7 @@ pub async fn create_instance_1_0_6_orchestration(
 
     // Choose creation path
     let result = if let Some(ref image_id) = input.source_image_id {
-        ctx.trace_info(format!("[v1.0.6] Restoring from image: {}", image_id));
+        ctx.trace_info(format!("[v1.0.7] Restoring from image: {}", image_id));
         create_from_image_impl(
             &ctx,
             &input,
@@ -149,7 +151,8 @@ pub async fn create_instance_1_0_6_orchestration(
 
     match result {
         Ok(output) => {
-            ctx.trace_info("[v1.0.6] Instance created successfully");
+            ctx.set_custom_status("Starting health monitor");
+            ctx.trace_info("[v1.0.7] Instance created successfully");
             let update_input = UpdateInstanceStateInput {
                 k8s_name: input.name.clone(),
                 state: "running".to_string(),
@@ -162,15 +165,17 @@ pub async fn create_instance_1_0_6_orchestration(
             update_cms_state(&ctx, update_input).await?;
 
             start_instance_actor(&ctx, &input.name, &namespace).await;
+            ctx.set_custom_status(&format!("Completed in {}s", output.deployment_time_seconds));
             Ok(output)
         }
         Err(e) => {
-            ctx.trace_error(format!("[v1.0.6] Failed to create instance: {}", e));
+            ctx.set_custom_status(&format!("Failed: {}", &e[..e.len().min(100)]));
+            ctx.trace_error(format!("[v1.0.7] Failed to create instance: {}", e));
             mark_instance_failed(&ctx, &input.name, &e).await;
-            ctx.trace_info("[v1.0.6] Cleaning up partial deployment");
+            ctx.trace_info("[v1.0.7] Cleaning up partial deployment");
 
             if let Err(cleanup_err) = cleanup_on_failure(&ctx, &namespace, &input.name).await {
-                ctx.trace_warn(format!("[v1.0.6] Cleanup failed: {}", cleanup_err));
+                ctx.trace_warn(format!("[v1.0.7] Cleanup failed: {}", cleanup_err));
             }
 
             Err(e)
@@ -198,8 +203,9 @@ async fn create_fresh_impl(
 
     let effective_password = input.password.clone();
 
+    ctx.set_custom_status("Deploying pod to Kubernetes");
     ctx.trace_info(format!(
-        "[v1.0.6] Step 1: Deploying PostgreSQL to Kubernetes (image: {})",
+        "[v1.0.7] Step 1: Deploying PostgreSQL to Kubernetes (image: {})",
         image_type.as_str()
     ));
 
@@ -224,8 +230,9 @@ async fn create_fresh_impl(
         .await?;
 
     // Step 2: Wait for pod ready
-    ctx.trace_info("[v1.0.6] Step 2: Waiting for pod to be ready");
-    wait_for_pod_ready(ctx, namespace, &input.name, "[v1.0.6]").await?;
+    ctx.set_custom_status("Waiting for pod ready");
+    ctx.trace_info("[v1.0.7] Step 2: Waiting for pod to be ready");
+    wait_for_pod_ready(ctx, namespace, &input.name, "[v1.0.7]").await?;
 
     let end_time = ctx
         .utc_now()
@@ -237,11 +244,13 @@ async fn create_fresh_impl(
         .as_secs();
 
     // Step 3: Get connection strings
-    ctx.trace_info("[v1.0.6] Step 3: Getting connection strings");
+    ctx.set_custom_status("Getting connection strings");
+    ctx.trace_info("[v1.0.7] Step 3: Getting connection strings");
     let conn_output = get_connection_strings(ctx, namespace, &input.name, &effective_password, use_load_balancer, &input.dns_label, image_type).await?;
 
     // Step 4: Test connection
-    ctx.trace_info("[v1.0.6] Step 4: Testing PostgreSQL connection");
+    ctx.set_custom_status("Testing connection");
+    ctx.trace_info("[v1.0.7] Step 4: Testing PostgreSQL connection");
     let test_output = test_connection(ctx, namespace, &input.name, &effective_password, &conn_output).await?;
 
     build_output(input, namespace, &effective_password, &conn_output, &test_output, deployment_time)
@@ -263,7 +272,8 @@ async fn create_from_image_impl(
         .map_err(|e| format!("Failed to get start time: {}", e))?;
 
     // Step 1: Fetch image details from CMS
-    ctx.trace_info(format!("[v1.0.6] Step 1: Fetching image details for {}", image_id));
+    ctx.set_custom_status("Fetching image details");
+    ctx.trace_info(format!("[v1.0.7] Step 1: Fetching image details for {}", image_id));
     let image_uuid = Uuid::parse_str(image_id)
         .map_err(|e| format!("Invalid image ID format: {}", e))?;
 
@@ -289,14 +299,15 @@ async fn create_from_image_impl(
     }
 
     ctx.trace_info(format!(
-        "[v1.0.6] Found image: {} (postgres: {}, size: {} bytes)",
+        "[v1.0.7] Found image: {} (postgres: {}, size: {} bytes)",
         image.name,
         image.postgres_version,
         image.backup_size_bytes.unwrap_or(0)
     ));
 
     // Get source password from image record
-    ctx.trace_info("[v1.0.6] Fetching source password from image record");
+    ctx.set_custom_status("Fetching source password");
+    ctx.trace_info("[v1.0.7] Fetching source password from image record");
     let password_result = ctx
         .schedule_activity_typed::<ImageOperation, ImageOperationResult>(
             cms::image_ops::NAME,
@@ -306,7 +317,7 @@ async fn create_from_image_impl(
 
     let effective_password = match password_result {
         ImageOperationResult::PasswordFound { password } => {
-            ctx.trace_info("[v1.0.6] Source password retrieved from image record");
+            ctx.trace_info("[v1.0.7] Source password retrieved from image record");
             password
         }
         ImageOperationResult::NotFound => {
@@ -321,7 +332,8 @@ async fn create_from_image_impl(
     let image_storage_size = image.storage_size_gb;
 
     // Step 2: Create empty PVC
-    ctx.trace_info("[v1.0.6] Step 2: Creating PVC for restore target");
+    ctx.set_custom_status("Creating PVC for restore");
+    ctx.trace_info("[v1.0.7] Step 2: Creating PVC for restore target");
     let pvc_input = CreatePvcInput {
         name: input.name.clone(),
         namespace: namespace.to_string(),
@@ -336,10 +348,11 @@ async fn create_from_image_impl(
         .await?;
 
     let pvc_name = pvc_output.pvc_name;
-    ctx.trace_info(format!("[v1.0.6] PVC created: {}", pvc_name));
+    ctx.trace_info(format!("[v1.0.7] PVC created: {}", pvc_name));
 
     // Step 3: Run restore job
-    ctx.trace_info("[v1.0.6] Step 3: Running restore job");
+    ctx.set_custom_status("Running restore job");
+    ctx.trace_info("[v1.0.7] Step 3: Running restore job");
     let job_name = format!("restore-{}-{}", input.name, &input.orchestration_id[..8.min(input.orchestration_id.len())]);
 
     let restore_input = RunRestoreJobInput {
@@ -359,11 +372,12 @@ async fn create_from_image_impl(
     )
     .await?;
 
-    ctx.trace_info("[v1.0.6] Restore job created, waiting for completion");
+    ctx.trace_info("[v1.0.7] Restore job created, waiting for completion");
 
     // Step 4: Wait for restore job to complete
     let max_job_attempts = 120; // 20 minutes
     for attempt in 1..=max_job_attempts {
+        ctx.set_custom_status(&format!("Restoring from backup ({}/{})", attempt, max_job_attempts));
         let job_status = ctx
             .schedule_activity_typed::<WaitForJobInput, WaitForJobOutput>(
                 activities::wait_for_job::NAME,
@@ -376,7 +390,7 @@ async fn create_from_image_impl(
             .map_err(|e| format!("Failed to check restore job status: {}", e))?;
 
         if job_status.succeeded {
-            ctx.trace_info("[v1.0.6] Restore job completed successfully");
+            ctx.trace_info("[v1.0.7] Restore job completed successfully");
             break;
         } else if job_status.failed {
             return Err(format!("Restore job failed after {} attempts", attempt));
@@ -386,7 +400,7 @@ async fn create_from_image_impl(
             return Err(format!("Restore job timed out after {} attempts", max_job_attempts));
         }
 
-        ctx.trace_info(format!("[v1.0.6] Restore job still running (attempt {}/{})", attempt, max_job_attempts));
+        ctx.trace_info(format!("[v1.0.7] Restore job still running (attempt {}/{})", attempt, max_job_attempts));
         ctx.schedule_timer(Duration::from_secs(10)).await;
     }
 
@@ -403,7 +417,8 @@ async fn create_from_image_impl(
         .await;
 
     // Step 5: Deploy StatefulSet and Service using existing PVC
-    ctx.trace_info("[v1.0.6] Step 5: Deploying StatefulSet and Service");
+    ctx.set_custom_status("Deploying from restored PVC");
+    ctx.trace_info("[v1.0.7] Step 5: Deploying StatefulSet and Service");
 
     let image_type = match image.image_type.as_str() {
         "stock" => ImageType::Stock,
@@ -429,11 +444,12 @@ async fn create_from_image_impl(
     )
     .await?;
 
-    ctx.trace_info("[v1.0.6] StatefulSet and Service created");
+    ctx.trace_info("[v1.0.7] StatefulSet and Service created");
 
     // Step 6: Wait for pod to be ready
-    ctx.trace_info("[v1.0.6] Step 6: Waiting for pod to be ready");
-    wait_for_pod_ready(ctx, namespace, &input.name, "[v1.0.6]").await?;
+    ctx.set_custom_status("Waiting for pod ready");
+    ctx.trace_info("[v1.0.7] Step 6: Waiting for pod to be ready");
+    wait_for_pod_ready(ctx, namespace, &input.name, "[v1.0.7]").await?;
 
     let end_time = ctx.utc_now().await
         .map_err(|e| format!("Failed to get end time: {}", e))?;
@@ -442,14 +458,16 @@ async fn create_from_image_impl(
         .as_secs();
 
     // Step 7: Get connection strings
-    ctx.trace_info("[v1.0.6] Step 7: Getting connection strings");
+    ctx.set_custom_status("Getting connection strings");
+    ctx.trace_info("[v1.0.7] Step 7: Getting connection strings");
     let conn_output = get_connection_strings(ctx, namespace, &input.name, &effective_password, use_load_balancer, &input.dns_label, &image_type).await?;
 
     // Step 8: Test connection
-    ctx.trace_info("[v1.0.6] Step 8: Testing PostgreSQL connection");
+    ctx.set_custom_status("Testing connection");
+    ctx.trace_info("[v1.0.7] Step 8: Testing PostgreSQL connection");
     let test_output = test_connection(ctx, namespace, &input.name, &effective_password, &conn_output).await?;
 
-    ctx.trace_info(format!("[v1.0.6] PostgreSQL version: {} (restored from image)", test_output.version));
+    ctx.trace_info(format!("[v1.0.7] PostgreSQL version: {} (restored from image)", test_output.version));
 
     build_output(input, namespace, &effective_password, &conn_output, &test_output, deployment_time)
 }
@@ -492,6 +510,7 @@ async fn wait_for_pod_ready(
             ));
         }
 
+        ctx.set_custom_status(&format!("Waiting for pod ready ({}/{})", attempt, max_attempts));
         ctx.trace_info(format!(
             "{} Pod in phase '{}', waiting 5 seconds... (attempt {}/{})",
             version_tag, wait_output.pod_phase, attempt, max_attempts
@@ -699,7 +718,7 @@ async fn mark_instance_failed(
         message: Some(error.to_string()),
     };
     if let Err(e) = update_cms_state(ctx, update_input).await {
-        ctx.trace_warn(format!("[v1.0.6] Failed to mark instance as failed in CMS: {}", e));
+        ctx.trace_warn(format!("[v1.0.7] Failed to mark instance as failed in CMS: {}", e));
     }
 
     if let Err(err) = ctx
@@ -711,7 +730,7 @@ async fn mark_instance_failed(
         )
         .await
     {
-        ctx.trace_warn(format!("[v1.0.6] Failed to free DNS name: {}", err));
+        ctx.trace_warn(format!("[v1.0.7] Failed to free DNS name: {}", err));
     }
 }
 
@@ -726,51 +745,4 @@ fn extract_storage_account(blob_url: &str) -> Result<String, String> {
         .ok_or_else(|| "Invalid blob URL format".to_string())?;
 
     Ok(account.to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::activity_types::ImageType;
-
-    #[test]
-    fn test_create_instance_input_serialization() {
-        let input = CreateInstanceInput {
-            user_name: "test".to_string(),
-            name: "test-pg".to_string(),
-            password: "pass123".to_string(),
-            postgres_version: Some("18".to_string()),
-            storage_size_gb: Some(10),
-            use_load_balancer: Some(true),
-            dns_label: Some("test".to_string()),
-            namespace: Some("toygres".to_string()),
-            orchestration_id: "create-test".to_string(),
-            image_type: ImageType::Stock,
-            source_image_id: None,
-            runtime_image_id: None,
-            image_override: None,
-        };
-
-        let json = serde_json::to_string(&input).unwrap();
-        let parsed: CreateInstanceInput = serde_json::from_str(&json).unwrap();
-        assert_eq!(input, parsed);
-    }
-
-    #[test]
-    fn test_create_instance_output_serialization() {
-        let output = CreateInstanceOutput {
-            instance_name: "test-pg".to_string(),
-            namespace: "toygres".to_string(),
-            ip_connection_string: "postgresql://postgres:pass@1.2.3.4:5432/postgres".to_string(),
-            dns_connection_string: Some("postgresql://postgres:pass@test.eastus.cloudapp.azure.com:5432/postgres".to_string()),
-            external_ip: Some("1.2.3.4".to_string()),
-            dns_name: Some("test.eastus.cloudapp.azure.com".to_string()),
-            postgres_version: "PostgreSQL 18.0".to_string(),
-            deployment_time_seconds: 45,
-        };
-
-        let json = serde_json::to_string(&output).unwrap();
-        let parsed: CreateInstanceOutput = serde_json::from_str(&json).unwrap();
-        assert_eq!(output, parsed);
-    }
 }

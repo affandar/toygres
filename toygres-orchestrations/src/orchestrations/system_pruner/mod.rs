@@ -15,9 +15,11 @@ pub mod system_pruner_1_0_1_orchestration;
 pub mod system_pruner_1_0_2_orchestration;
 pub mod system_pruner_1_0_3_orchestration;
 mod system_pruner_orchestration;
+mod system_pruner_1_0_5_orchestration;
 
 pub use system_pruner_1_0_0_orchestration::system_pruner_1_0_0_orchestration;
 pub use system_pruner_1_0_1_orchestration::system_pruner_1_0_1_orchestration;
 pub use system_pruner_1_0_2_orchestration::system_pruner_1_0_2_orchestration;
 pub use system_pruner_1_0_3_orchestration::system_pruner_1_0_3_orchestration;
 pub use system_pruner_orchestration::system_pruner_1_0_4_orchestration;
+pub use system_pruner_1_0_5_orchestration::system_pruner_1_0_5_orchestration;

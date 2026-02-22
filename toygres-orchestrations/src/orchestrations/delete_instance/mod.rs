@@ -6,10 +6,12 @@ pub const NAME: &str = "toygres-orchestrations::orchestration::delete-instance";
 pub mod delete_instance_1_0_0_orchestration;
 pub mod delete_instance_1_0_1_orchestration;
 mod delete_instance_orchestration;
+mod delete_instance_1_0_3_orchestration;
 
 pub use delete_instance_1_0_0_orchestration::delete_instance_1_0_0_orchestration;
 pub use delete_instance_1_0_1_orchestration::delete_instance_1_0_1_orchestration;
 pub use delete_instance_orchestration::delete_instance_1_0_2_orchestration;
+pub use delete_instance_1_0_3_orchestration::delete_instance_1_0_3_orchestration;
 
 use duroxide::OrchestrationContext;
 use crate::activities::cms;

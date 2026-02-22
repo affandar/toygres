@@ -709,6 +709,34 @@ pub struct SendExternalEventOutput {
 }
 
 // ============================================================================
+// Execute Query Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExecuteQueryInput {
+    /// PostgreSQL connection string
+    pub connection_string: String,
+    /// SQL query to execute
+    pub query: String,
+    /// K8s instance name (for session-affinity connection pooling)
+    pub k8s_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ExecuteQueryOutput {
+    /// Column names
+    pub columns: Vec<String>,
+    /// Rows as arrays of string values
+    pub rows: Vec<Vec<Option<String>>>,
+    /// Total number of rows returned
+    pub row_count: usize,
+    /// Whether the query was successful
+    pub success: bool,
+    /// Error message if failed
+    pub error: Option<String>,
+}
+
+// ============================================================================
 // Create PVC Activity
 // ============================================================================
 

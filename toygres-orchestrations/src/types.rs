@@ -99,6 +99,10 @@ pub struct InstanceActorInput {
     pub namespace: String,
     /// Orchestration ID
     pub orchestration_id: String,
+    /// Last query result to carry forward across continue-as-new boundaries
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    pub last_query_result: Option<serde_json::Value>,
 }
 
 // Output: Unit type, continues forever or exits with error

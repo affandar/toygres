@@ -12,6 +12,7 @@ pub mod system_prune_2;
 pub mod run_backup_job;
 pub mod run_restore_job;
 pub mod send_external_event;
+pub mod execute_query;
 
 // Consolidated K8s utility activities
 pub mod k8s_utils;

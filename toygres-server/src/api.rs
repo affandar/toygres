@@ -48,6 +48,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances/:name/actor/start", post(start_instance_actor))
         .route("/api/instances/:name/actor/restart", post(restart_instance_actor))
         .route("/api/instances/:name/actor/cancel", post(cancel_instance_actor))
+        .route("/api/instances/:name/query", post(submit_query))
+        .route("/api/instances/:name/query-status", get(get_query_status))
         .route("/api/instances/:name/logs", get(get_instance_logs))
         .route("/api/instances/:name/durable-orchestrations", get(get_pg_durable_orchestrations))
         .route("/api/instances/:name/durable-orchestrations/metrics", get(get_pg_durable_metrics))
@@ -250,7 +252,7 @@ async fn list_instances(
 }
 
 async fn get_instance(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     Path(name): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     use anyhow::Context;
@@ -294,6 +296,36 @@ async fn get_instance(
             let ip_conn_encoded = ip_conn.map(|s| url_encode_connection_string_password(&s));
             let dns_conn_encoded = dns_conn.map(|s| url_encode_connection_string_password(&s));
             
+            // Fetch actor custom status if actor is running
+            let actor_orch_id: Option<String> = row.get("instance_actor_orchestration_id");
+            let create_orch_id: Option<String> = row.get("create_orchestration_id");
+            let instance_state: String = row.get("state");
+            
+            // Get custom status from the relevant orchestration
+            let mut actor_custom_status: Option<serde_json::Value> = None;
+            let mut create_custom_status: Option<String> = None;
+            
+            if let Some(ref actor_id) = actor_orch_id {
+                if let Ok(status) = state.duroxide_client.get_orchestration_status(actor_id).await {
+                    if let duroxide::OrchestrationStatus::Running { custom_status, .. } = status {
+                        if let Some(cs) = custom_status {
+                            actor_custom_status = serde_json::from_str(&cs).ok();
+                        }
+                    }
+                }
+            }
+            
+            // If creating, get create orchestration custom status
+            if instance_state == "creating" {
+                if let Some(ref create_id) = create_orch_id {
+                    if let Ok(status) = state.duroxide_client.get_orchestration_status(create_id).await {
+                        if let duroxide::OrchestrationStatus::Running { custom_status, .. } = status {
+                            create_custom_status = custom_status;
+                        }
+                    }
+                }
+            }
+            
             Ok(Json(serde_json::json!({
                 "id": row.get::<String, _>("id"),
                 "user_name": row.get::<String, _>("user_name"),
@@ -312,7 +344,9 @@ async fn get_instance(
                 "create_orchestration_id": row.get::<Option<String>, _>("create_orchestration_id"),
                 "instance_actor_orchestration_id": row.get::<Option<String>, _>("instance_actor_orchestration_id"),
                 "image_type": row.get::<String, _>("image_type"),
-                "last_health_check": row.get::<Option<String>, _>("last_health_check")
+                "last_health_check": row.get::<Option<String>, _>("last_health_check"),
+                "actor_custom_status": actor_custom_status,
+                "create_custom_status": create_custom_status,
             })))
         }
         None => Err(AppError::NotFound(format!("Instance '{}' not found", name)))
@@ -1198,6 +1232,7 @@ async fn start_instance_actor(
         k8s_name: k8s_name.clone(),
         namespace: namespace.clone(),
         orchestration_id: actor_id.clone(),
+        last_query_result: None,
     };
     
     // Start the actor orchestration
@@ -1289,6 +1324,7 @@ async fn restart_instance_actor(
         k8s_name: k8s_name.clone(),
         namespace: namespace.clone(),
         orchestration_id: actor_id.clone(),
+        last_query_result: None,
     };
     
     // Start the actor orchestration
@@ -1967,10 +2003,10 @@ async fn get_orchestration(
         let status = state.duroxide_client.get_orchestration_status(&id).await
             .map_err(|e| AppError::Internal(format!("Failed to get orchestration status: {}", e)))?;
         
-        let (status_str, output) = match &status {
-            duroxide::OrchestrationStatus::Running { .. } => ("Running".to_string(), None),
-            duroxide::OrchestrationStatus::Completed { output, .. } => ("Completed".to_string(), Some(output.clone())),
-            duroxide::OrchestrationStatus::Failed { details, .. } => ("Failed".to_string(), Some(format!("{:?}", details))),
+        let (status_str, output, custom_status) = match &status {
+            duroxide::OrchestrationStatus::Running { custom_status, .. } => ("Running".to_string(), None, custom_status.clone()),
+            duroxide::OrchestrationStatus::Completed { output, custom_status, .. } => ("Completed".to_string(), Some(output.clone()), custom_status.clone()),
+            duroxide::OrchestrationStatus::Failed { details, custom_status, .. } => ("Failed".to_string(), Some(format!("{:?}", details)), custom_status.clone()),
             duroxide::OrchestrationStatus::NotFound => {
                 return Err(AppError::NotFound(format!("Orchestration '{}' not found", id)));
             }
@@ -1980,6 +2016,7 @@ async fn get_orchestration(
             "instance_id": id,
             "status": status_str,
             "output": output,
+            "custom_status": custom_status,
         })));
     }
     
@@ -2005,17 +2042,24 @@ async fn get_orchestration(
         .unwrap_or_else(|| "unknown".to_string());
     
     // Get output if the orchestration completed or failed
-    let output = if info.status == "Completed" || info.status == "Failed" {
-        // Use get_orchestration_status to get the output
+    let (output, custom_status) = if info.status == "Completed" || info.status == "Failed" {
+        // Use get_orchestration_status to get the output and custom_status
         let status = state.duroxide_client.get_orchestration_status(&id).await
             .map_err(|e| AppError::Internal(format!("Failed to get orchestration status: {}", e)))?;
         match status {
-            duroxide::OrchestrationStatus::Completed { output, .. } => Some(output),
-            duroxide::OrchestrationStatus::Failed { details, .. } => Some(format!("{:?}", details)),
-            _ => None,
+            duroxide::OrchestrationStatus::Completed { output, custom_status, .. } => (Some(output), custom_status),
+            duroxide::OrchestrationStatus::Failed { details, custom_status, .. } => (Some(format!("{:?}", details)), custom_status),
+            _ => (None, None),
         }
     } else {
-        None
+        // For running orchestrations, get custom_status
+        let status = state.duroxide_client.get_orchestration_status(&id).await
+            .map_err(|e| AppError::Internal(format!("Failed to get orchestration status: {}", e)))?;
+        let custom_status = match status {
+            duroxide::OrchestrationStatus::Running { custom_status, .. } => custom_status,
+            _ => None,
+        };
+        (None, custom_status)
     };
     
     // Get execution history with optional limit
@@ -2062,6 +2106,7 @@ async fn get_orchestration(
         "created_at": created_at,
         "updated_at": updated_at,
         "output": output,
+        "custom_status": custom_status,
         "history": history,
     })))
 }
@@ -2105,6 +2150,113 @@ async fn raise_event_to_orchestration(
         "instance_id": id,
         "event_name": event_name,
         "raised": true,
+    })))
+}
+
+async fn submit_query(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+    Json(req): Json<serde_json::Value>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let query = req.get("query")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| AppError::BadRequest("Missing 'query' field".to_string()))?
+        .to_string();
+
+    // Look up the instance actor orchestration ID from CMS
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&db_url)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB connect error: {}", e)))?;
+
+    let row = sqlx::query(
+        "SELECT instance_actor_orchestration_id FROM toygres_cms.instances WHERE dns_name = $1 AND state != 'deleted' LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Query CMS: {}", e)))?;
+
+    let actor_id: String = match row {
+        Some(row) => {
+            use sqlx::Row;
+            row.get::<Option<String>, _>("instance_actor_orchestration_id")
+                .ok_or_else(|| AppError::BadRequest("No instance actor running for this instance".to_string()))?
+        }
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+
+    // Generate a request ID and send the query via event queue
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let query_request = serde_json::json!({
+        "query": query,
+        "request_id": request_id,
+    });
+
+    state.duroxide_client
+        .enqueue_event(&actor_id, "query", &query_request.to_string())
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to enqueue query: {}", e)))?;
+
+    Ok(Json(serde_json::json!({
+        "submitted": true,
+        "request_id": request_id,
+        "actor_id": actor_id,
+    })))
+}
+
+async fn get_query_status(
+    State(state): State<AppState>,
+    Path(name): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    // Look up the instance actor orchestration ID
+    let db_url = std::env::var("DATABASE_URL")
+        .map_err(|_| AppError::Internal("DATABASE_URL not configured".to_string()))?;
+    let pool = sqlx::postgres::PgPoolOptions::new()
+        .max_connections(2)
+        .connect(&db_url)
+        .await
+        .map_err(|e| AppError::Internal(format!("DB connect error: {}", e)))?;
+
+    let row = sqlx::query(
+        "SELECT instance_actor_orchestration_id FROM toygres_cms.instances WHERE dns_name = $1 AND state != 'deleted' LIMIT 1"
+    )
+    .bind(&name)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| AppError::Internal(format!("Query CMS: {}", e)))?;
+
+    let actor_id: String = match row {
+        Some(row) => {
+            use sqlx::Row;
+            row.get::<Option<String>, _>("instance_actor_orchestration_id")
+                .ok_or_else(|| AppError::BadRequest("No instance actor running".to_string()))?
+        }
+        None => return Err(AppError::NotFound(format!("Instance '{}' not found", name))),
+    };
+
+    // Get custom status from the actor orchestration
+    let status = state.duroxide_client
+        .get_orchestration_status(&actor_id)
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to get actor status: {}", e)))?;
+
+    let custom_status = match status {
+        duroxide::OrchestrationStatus::Running { custom_status, .. } => custom_status,
+        duroxide::OrchestrationStatus::Completed { custom_status, .. } => custom_status,
+        _ => None,
+    };
+
+    // Parse custom_status JSON to extract query result
+    let parsed = custom_status.as_ref()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok());
+
+    Ok(Json(serde_json::json!({
+        "actor_id": actor_id,
+        "custom_status": parsed,
     })))
 }
 

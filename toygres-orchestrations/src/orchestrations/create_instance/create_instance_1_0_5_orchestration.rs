@@ -642,6 +642,7 @@ async fn start_instance_actor(
         k8s_name: k8s_name.to_string(),
         namespace: namespace.to_string(),
         orchestration_id: actor_id.clone(),
+        last_query_result: None,
     };
 
     let input_json = serde_json::to_string(&actor_input)

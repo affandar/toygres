@@ -1017,6 +1017,12 @@ export function Orchestrations() {
                 <p className="text-sm text-muted-foreground">Execution</p>
                 <p className="text-sm">#{orchDetail.current_execution_id}</p>
               </div>
+              {orchDetail.custom_status && (
+                <div className="col-span-2">
+                  <p className="text-sm text-muted-foreground">Custom Status</p>
+                  <p className="text-xs font-mono mt-1 px-2 py-1 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20">{orchDetail.custom_status}</p>
+                </div>
+              )}
               <div className="col-span-2">
                 <p className="text-sm text-muted-foreground">Type</p>
                 <p className="text-xs font-mono">{orchDetail.orchestration_name}</p>

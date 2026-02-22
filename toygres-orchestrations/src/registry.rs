@@ -3,7 +3,7 @@
 use duroxide::runtime::registry::ActivityRegistry;
 use duroxide::OrchestrationRegistry;
 use crate::activities;
-use crate::orchestrations::{create_instance, delete_instance, instance_actor, system_pruner, create_image};
+use crate::orchestrations::{create_instance, delete_instance, instance_actor, system_pruner, create_image, create_image_v1_0_1};
 
 /// Create an OrchestrationRegistry with all Toygres orchestrations
 ///
@@ -28,6 +28,12 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             "1.0.6",
             create_instance::create_instance_1_0_6_orchestration,
         )
+        // v1.0.7: Custom status reporting at every step
+        .register_versioned_typed(
+            create_instance::NAME,
+            "1.0.7",
+            create_instance::create_instance_1_0_7_orchestration,
+        )
         .register_typed(
             delete_instance::NAME,
             delete_instance::delete_instance_1_0_0_orchestration,
@@ -44,6 +50,12 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             "1.0.2",
             delete_instance::delete_instance_1_0_2_orchestration,
         )
+        // v1.0.3: Custom status reporting
+        .register_versioned_typed(
+            delete_instance::NAME,
+            "1.0.3",
+            delete_instance::delete_instance_1_0_3_orchestration,
+        )
         .register_typed(
             instance_actor::NAME,
             instance_actor::instance_actor_1_0_0_orchestration,
@@ -57,6 +69,12 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             instance_actor::NAME,
             "1.0.2",
             instance_actor::instance_actor_1_0_2_orchestration,
+        )
+        // v1.0.3: Custom status + event queue for ad-hoc queries
+        .register_versioned_typed(
+            instance_actor::NAME,
+            "1.0.3",
+            instance_actor::instance_actor_1_0_3_orchestration,
         )
         .register_typed(
             system_pruner::NAME,
@@ -86,10 +104,22 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             "1.0.4",
             system_pruner::system_pruner_1_0_4_orchestration,
         )
+        // Register v1.0.5 of system pruner (custom status reporting)
+        .register_versioned_typed(
+            system_pruner::NAME,
+            "1.0.5",
+            system_pruner::system_pruner_1_0_5_orchestration,
+        )
         // Image orchestrations
         .register_typed(
             create_image::NAME,
             create_image::create_image_orchestration,
+        )
+        // v1.0.1: Custom status reporting
+        .register_versioned_typed(
+            create_image_v1_0_1::NAME,
+            "1.0.1",
+            create_image_v1_0_1::create_image_1_0_1_orchestration,
         )
         .build()
 }
@@ -222,6 +252,11 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::send_external_event::NAME,
             activities::send_external_event::activity,
         )
+        // Query execution
+        .register_typed(
+            activities::execute_query::NAME,
+            activities::execute_query::activity,
+        )
         .build()
 }
 
@@ -245,4 +280,3 @@ mod tests {
         // Registry creation should not panic
     }
 }
-

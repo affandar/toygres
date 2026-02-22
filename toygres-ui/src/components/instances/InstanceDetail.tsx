@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Copy, Trash2, AlertTriangle, FileText, GitBranch, Play, Square, RotateCw, Activity, XCircle, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Copy, Trash2, AlertTriangle, FileText, GitBranch, Play, Square, RotateCw, Activity, XCircle, RefreshCw, Loader2, Terminal } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/lib/toast';
@@ -254,6 +254,13 @@ export function InstanceDetail() {
                 {instance.state}
               </span>
             </div>
+            {/* Show create progress when creating */}
+            {instance.state === 'creating' && instance.create_custom_status && (
+              <div className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-blue-500/10 border border-blue-500/20">
+                <Loader2 className="h-3 w-3 text-blue-500 animate-spin" />
+                <span className="text-xs text-blue-400">{instance.create_custom_status}</span>
+              </div>
+            )}
             <div className="flex justify-between">
               <span className="text-sm text-muted-foreground">Health</span>
               <div className="flex items-center gap-2">
@@ -430,6 +437,9 @@ export function InstanceDetail() {
               {instance.last_health_check && (
                 <p className="text-xs text-muted-foreground mt-2">
                   Last check: {formatRelativeTime(instance.last_health_check)}
+                  {instance.actor_custom_status?.response_time_ms != null && (
+                    <span className="ml-2">({instance.actor_custom_status.response_time_ms}ms)</span>
+                  )}
                 </p>
               )}
             </div>
@@ -479,7 +489,156 @@ export function InstanceDetail() {
           </CardContent>
         </Card>
       )}
+
+      {/* Query Runner */}
+      {instance.state === 'running' && instance.instance_actor_orchestration_id && (
+        <QueryRunner instanceName={name!} />
+      )}
     </div>
+  );
+}
+
+function QueryRunner({ instanceName }: { instanceName: string }) {
+  const [query, setQuery] = useState('SELECT version();');
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
+  const [result, setResult] = useState<import('@/lib/types').QueryResult | null>(null);
+  const { showToast } = useToast();
+  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+    };
+  }, []);
+
+  const handleSubmit = async () => {
+    if (!query.trim()) return;
+    setIsSubmitting(true);
+    setResult(null);
+
+    try {
+      const resp = await api.submitQuery(instanceName, query);
+      const submittedRequestId = resp.request_id;
+      setIsPolling(true);
+      showToast('success', 'Query submitted');
+
+      // Poll for results
+      let attempts = 0;
+      pollIntervalRef.current = setInterval(async () => {
+        attempts++;
+        try {
+          const status = await api.getQueryStatus(instanceName);
+          if (status.custom_status?.query_result?.request_id === submittedRequestId) {
+            setResult(status.custom_status.query_result);
+            setIsPolling(false);
+            if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          }
+        } catch {
+          // keep polling
+        }
+        if (attempts > 30) {
+          setIsPolling(false);
+          if (pollIntervalRef.current) clearInterval(pollIntervalRef.current);
+          showToast('error', 'Query timed out waiting for response');
+        }
+      }, 2000);
+    } catch (error: unknown) {
+      showToast('error', `Failed to submit query: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Terminal className="h-5 w-5 text-green-500" />
+          Query Runner
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        <div>
+          <textarea
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Enter SQL query..."
+            className="w-full h-24 rounded-md border border-border bg-background px-3 py-2 text-sm font-mono resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+            onKeyDown={(e) => {
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                handleSubmit();
+              }
+            }}
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <Button
+            onClick={handleSubmit}
+            disabled={isSubmitting || isPolling || !query.trim()}
+            size="sm"
+          >
+            {isPolling ? (
+              <>
+                <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                Waiting for result...
+              </>
+            ) : isSubmitting ? (
+              'Submitting...'
+            ) : (
+              <>
+                <Play className="h-3 w-3 mr-1" />
+                Run Query
+              </>
+            )}
+          </Button>
+          <span className="text-xs text-muted-foreground">⌘+Enter to run</span>
+        </div>
+
+        {result && (
+          <div className="mt-3">
+            {result.success ? (
+              <div>
+                <div className="text-xs text-muted-foreground mb-2">
+                  {result.row_count} row{result.row_count !== 1 ? 's' : ''} returned
+                </div>
+                {result.columns.length > 0 && (
+                  <div className="overflow-x-auto rounded-md border border-border">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="border-b border-border bg-muted/50">
+                          {result.columns.map((col, i) => (
+                            <th key={i} className="px-3 py-2 text-left font-medium">
+                              {col}
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {result.rows.map((row, i) => (
+                          <tr key={i} className="border-b border-border/50 last:border-0">
+                            {row.map((cell, j) => (
+                              <td key={j} className="px-3 py-1.5 font-mono">
+                                {cell ?? <span className="text-muted-foreground italic">NULL</span>}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-2">
+                {result.error}
+              </div>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }
 

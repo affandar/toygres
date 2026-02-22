@@ -67,6 +67,24 @@ export interface InstanceDetail extends Instance {
   delete_orchestration_id: string | null;
   instance_actor_orchestration_id: string | null;
   last_health_check: string | null;
+  actor_custom_status: ActorCustomStatus | null;
+  create_custom_status: string | null;
+}
+
+export interface ActorCustomStatus {
+  health: string;
+  response_time_ms?: number;
+  postgres_version?: string;
+  query_result?: QueryResult;
+}
+
+export interface QueryResult {
+  request_id: string;
+  columns: string[];
+  rows: (string | null)[][];
+  row_count: number;
+  success: boolean;
+  error?: string;
 }
 
 export interface Orchestration {
@@ -78,6 +96,7 @@ export interface Orchestration {
   updated_at: string;
   current_execution_id: number;
   output?: string;
+  custom_status?: string;
   history?: OrchestrationEvent[];
 }
 

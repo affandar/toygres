@@ -332,6 +332,24 @@ export const api = {
     });
   },
 
+  async submitQuery(name: string, query: string): Promise<{
+    submitted: boolean;
+    request_id: string;
+    actor_id: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/query`, {
+      method: 'POST',
+      body: JSON.stringify({ query }),
+    });
+  },
+
+  async getQueryStatus(name: string): Promise<{
+    actor_id: string;
+    custom_status: import('./types').ActorCustomStatus | null;
+  }> {
+    return fetchJson(`${API_BASE}/api/instances/${name}/query-status`);
+  },
+
   async bulkCreateInstances(data: {
     base_name: string;
     count: number;
