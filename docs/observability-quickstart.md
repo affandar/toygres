@@ -273,7 +273,7 @@ kubectl set env deployment/toygres-server \
 ## 📚 Learn More
 
 - [Full Observability README](../observability/README.md)
-- [Duroxide Observability Guide](https://github.com/affandar/duroxide/blob/main/docs/observability-guide.md)
+- [Duroxide Observability Guide](https://github.com/microsoft/duroxide/blob/main/docs/observability-guide.md)
 - [Example Queries](../observability/README.md#example-queries)
 
 ## 💡 Tips

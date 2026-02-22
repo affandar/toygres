@@ -2,7 +2,7 @@
 
 ## Metrics Available (from Duroxide Observability Guide)
 
-Based on the [duroxide observability guide](https://github.com/affandar/duroxide/blob/main/docs/observability-guide.md):
+Based on the [duroxide observability guide](https://github.com/microsoft/duroxide/blob/main/docs/observability-guide.md):
 
 ### Orchestration Metrics
 

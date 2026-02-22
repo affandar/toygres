@@ -224,8 +224,8 @@ kubectl cluster-info
 
 ## Resources
 
-- [Duroxide Documentation](https://github.com/affandar/duroxide)
-- [Duroxide-PG Documentation](https://github.com/affandar/duroxide-pg)
+- [Duroxide Documentation](https://github.com/microsoft/duroxide)
+- [Duroxide-PG Documentation](https://github.com/microsoft/duroxide-pg)
 - [Azure SDK for Rust](https://github.com/Azure/azure-sdk-for-rust)
 - [kube-rs Documentation](https://kube.rs/)
 

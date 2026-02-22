@@ -285,7 +285,7 @@ docker compose -f docker-compose.observability.yml restart grafana
 
 ## References
 
-- [Duroxide Observability Guide](https://github.com/affandar/duroxide/blob/main/docs/observability-guide.md)
+- [Duroxide Observability Guide](https://github.com/microsoft/duroxide/blob/main/docs/observability-guide.md)
 - [OpenTelemetry Collector Docs](https://opentelemetry.io/docs/collector/)
 - [Prometheus Query Docs](https://prometheus.io/docs/prometheus/latest/querying/basics/)
 - [LogQL (Loki) Docs](https://grafana.com/docs/loki/latest/logql/)

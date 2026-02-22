@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-Toygres is a **Rust-based control plane** for hosting PostgreSQL containers as a service on Azure Kubernetes Service (AKS). It uses [Duroxide](https://github.com/affandar/duroxide) for durable workflow orchestration.
+Toygres is a **Rust-based control plane** for hosting PostgreSQL containers as a service on Azure Kubernetes Service (AKS). It uses [Duroxide](https://github.com/microsoft/duroxide) for durable workflow orchestration.
 
 ## ⚠️ Implementation Guidelines
 

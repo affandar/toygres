@@ -9,8 +9,8 @@ Toygres is a Rust-based control plane for hosting PostgreSQL containers as a ser
 ### Technology Stack
 
 - **Language**: Rust (1.85.0+)
-- **Workflow Framework**: [Duroxide](https://github.com/affandar/duroxide) - Durable workflow orchestration
-- **Backend Provider**: [Duroxide-PG](https://github.com/affandar/duroxide-pg) - PostgreSQL backend for Duroxide
+- **Workflow Framework**: [Duroxide](https://github.com/microsoft/duroxide) - Durable workflow orchestration
+- **Backend Provider**: [Duroxide-PG](https://github.com/microsoft/duroxide-pg) - PostgreSQL backend for Duroxide
 - **Container Platform**: Azure Kubernetes Service (AKS)
 - **Metadata Storage**: PostgreSQL
 - **API Framework**: Axum

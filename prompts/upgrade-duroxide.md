@@ -24,13 +24,13 @@ Fetch the latest release information from both repositories:
 
 1. **Duroxide (core runtime):**
    - Latest version: https://crates.io/crates/duroxide
-   - Changelog: https://github.com/affandar/duroxide/blob/main/CHANGELOG.md
-   - README: https://github.com/affandar/duroxide/blob/main/README.md
+   - Changelog: https://github.com/microsoft/duroxide/blob/main/CHANGELOG.md
+   - README: https://github.com/microsoft/duroxide/blob/main/README.md
 
 2. **Duroxide-PG (PostgreSQL provider):**
    - Latest version: https://crates.io/crates/duroxide-pg
-   - Changelog: https://github.com/affandar/duroxide-pg/blob/main/CHANGELOG.md
-   - README: https://github.com/affandar/duroxide-pg/blob/main/README.md
+   - Changelog: https://github.com/microsoft/duroxide-pg/blob/main/CHANGELOG.md
+   - README: https://github.com/microsoft/duroxide-pg/blob/main/README.md
 
 Read these documents to determine:
 - What is the latest version of each crate?
@@ -304,11 +304,11 @@ When analyzing upgrades, consult these documents:
 
 | Document | URL | Purpose |
 |----------|-----|---------|
-| Duroxide CHANGELOG | https://github.com/affandar/duroxide/blob/main/CHANGELOG.md | Breaking changes, new features |
-| Duroxide-PG CHANGELOG | https://github.com/affandar/duroxide-pg/blob/main/CHANGELOG.md | Schema migrations, API changes |
-| Orchestration Guide | https://github.com/affandar/duroxide/blob/main/docs/ORCHESTRATION-GUIDE.md | API reference, patterns |
-| Cross-Crate Registry | https://github.com/affandar/duroxide/blob/main/docs/cross-crate-registry-pattern.md | Registry patterns |
-| Provider Implementation | https://github.com/affandar/duroxide/blob/main/docs/provider-implementation-guide.md | Provider trait details |
+| Duroxide CHANGELOG | https://github.com/microsoft/duroxide/blob/main/CHANGELOG.md | Breaking changes, new features |
+| Duroxide-PG CHANGELOG | https://github.com/microsoft/duroxide-pg/blob/main/CHANGELOG.md | Schema migrations, API changes |
+| Orchestration Guide | https://github.com/microsoft/duroxide/blob/main/docs/ORCHESTRATION-GUIDE.md | API reference, patterns |
+| Cross-Crate Registry | https://github.com/microsoft/duroxide/blob/main/docs/cross-crate-registry-pattern.md | Registry patterns |
+| Provider Implementation | https://github.com/microsoft/duroxide/blob/main/docs/provider-implementation-guide.md | Provider trait details |
 
 ---
 

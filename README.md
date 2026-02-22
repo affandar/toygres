@@ -15,7 +15,7 @@ A Rust-based toy control plane for hosting PostgreSQL containers as a service on
 
 ## Features
 
-- **Durable Workflows**: Uses [Duroxide](https://github.com/affandar/duroxide) for reliable orchestration
+- **Durable Workflows**: Uses [Duroxide](https://github.com/microsoft/duroxide) for reliable orchestration
 - **Kubernetes Native**: Deploys PostgreSQL as pods in AKS
 - **Public & Private Access**: Supports LoadBalancer (public IP) or ClusterIP (internal only)
 - **DNS Support**: Automatic Azure DNS names for instances

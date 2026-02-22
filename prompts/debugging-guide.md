@@ -228,8 +228,8 @@ cargo outdated
 
 ## Getting Help
 
-1. Check Duroxide documentation: https://github.com/affandar/duroxide
-2. Check Duroxide-PG documentation: https://github.com/affandar/duroxide-pg
+1. Check Duroxide documentation: https://github.com/microsoft/duroxide
+2. Check Duroxide-PG documentation: https://github.com/microsoft/duroxide-pg
 3. Review the implementation plan: `docs/plan.md`
 4. Search existing issues or error messages
 
