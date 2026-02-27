@@ -737,6 +737,41 @@ pub struct ExecuteQueryOutput {
 }
 
 // ============================================================================
+// Get Storage Config Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetStorageConfigInput {}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetStorageConfigOutput {
+    /// Azure storage account name
+    pub storage_account: String,
+    /// Azure storage container name
+    pub container: String,
+}
+
+// ============================================================================
+// Enqueue Event Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnqueueEventInput {
+    /// Target orchestration instance ID
+    pub instance_id: String,
+    /// Queue name on the target instance
+    pub queue_name: String,
+    /// Event payload (JSON string)
+    pub payload: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EnqueueEventOutput {
+    /// Whether the event was enqueued successfully
+    pub sent: bool,
+}
+
+// ============================================================================
 // Create PVC Activity
 // ============================================================================
 
@@ -756,5 +791,34 @@ pub struct CreatePvcOutput {
     pub pvc_name: String,
     /// Whether the PVC was created (false if it already existed)
     pub created: bool,
+}
+
+// ============================================================================
+// Get Batch Status Activity
+// ============================================================================
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetBatchStatusInput {
+    /// List of orchestration instance IDs to check
+    pub orchestration_ids: Vec<String>,
+}
+
+/// Status of a single orchestration in the batch
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchStatusEntry {
+    pub orchestration_id: String,
+    /// "Running", "Completed", "Failed", "NotFound"
+    pub status: String,
+    /// Custom status string from the orchestration (e.g., "Deploying pod to Kubernetes")
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub custom_status: Option<String>,
+    /// Error message if failed (trimmed from ErrorDetails.display_message())
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GetBatchStatusOutput {
+    pub entries: Vec<BatchStatusEntry>,
 }
 

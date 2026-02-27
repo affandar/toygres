@@ -144,6 +144,37 @@ pub struct CreateImageOutput {
 }
 
 // ============================================================================
+// Create Semaphore Orchestration
+// ============================================================================
+
+/// State for the create-semaphore eternal singleton orchestration.
+/// Carried across continue-as-new boundaries.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SemaphoreInput {
+    /// Maximum concurrent permits allowed
+    pub max_concurrent: u32,
+    /// Instance IDs currently holding a permit (BTreeSet for deterministic serialization)
+    #[serde(default)]
+    pub active: std::collections::BTreeSet<String>,
+    /// FIFO queue of instance IDs waiting for a permit
+    #[serde(default)]
+    pub waiting: std::collections::VecDeque<String>,
+    /// Number of events processed in this execution (for continue-as-new threshold)
+    #[serde(default)]
+    pub events_processed: u32,
+}
+
+/// Messages sent to the semaphore's "permits" event queue
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(tag = "type")]
+pub enum PermitMessage {
+    /// Request a permit to proceed with creation
+    Acquire { requester_id: String },
+    /// Release a previously held permit
+    Release { requester_id: String },
+}
+
+// ============================================================================
 // Delete Image Orchestration
 // ============================================================================
 
@@ -161,5 +192,80 @@ pub struct DeleteImageOutput {
     pub image_name: String,
     /// Whether image was deleted
     pub deleted: bool,
+}
+
+// ============================================================================
+// Batch Create Orchestration
+// ============================================================================
+
+/// Input for the batch-create orchestration.
+/// Also carries state across continue-as-new boundaries during monitoring phase.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BatchCreateInput {
+    /// Base name for instances (e.g. "mydb" → mydb1, mydb2, ...)
+    pub base_name: String,
+    /// Number of instances to create
+    pub count: u32,
+    /// PostgreSQL password
+    pub password: String,
+    /// PostgreSQL version (e.g. "18")
+    #[serde(default = "default_postgres_version")]
+    pub postgres_version: String,
+    /// Storage size in GB
+    #[serde(default = "default_storage_size")]
+    pub storage_size_gb: i32,
+    /// Whether to use LoadBalancer for public IP
+    #[serde(default = "default_true")]
+    pub use_load_balancer: bool,
+    /// Kubernetes namespace
+    #[serde(default = "default_namespace")]
+    pub namespace: String,
+    /// Image type
+    #[serde(default)]
+    pub image_type: ImageType,
+    /// Optional runtime image ID
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub runtime_image_id: Option<String>,
+    /// Optional image override
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub image_override: Option<String>,
+    /// Instances being tracked (populated after creation phase)
+    #[serde(default)]
+    pub instances: Vec<BatchInstance>,
+    /// Number of polls completed (for continue-as-new threshold)
+    #[serde(default)]
+    pub polls_completed: u32,
+    /// Accumulated errors from failed children
+    #[serde(default)]
+    pub errors: Vec<BatchError>,
+}
+
+fn default_postgres_version() -> String { "18".to_string() }
+fn default_storage_size() -> i32 { 10 }
+fn default_true() -> bool { true }
+fn default_namespace() -> String { "toygres".to_string() }
+
+/// An individual instance in a batch
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BatchInstance {
+    pub user_name: String,
+    pub k8s_name: String,
+    pub orchestration_id: String,
+}
+
+/// Error from a failed child create
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BatchError {
+    pub instance_name: String,
+    pub error: String,
+}
+
+/// Output from the batch-create orchestration
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct BatchCreateOutput {
+    pub total: u32,
+    pub completed: u32,
+    pub failed: u32,
+    pub errors: Vec<BatchError>,
 }
 

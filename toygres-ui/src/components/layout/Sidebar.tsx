@@ -11,7 +11,8 @@ import {
   FileCode,
   Scissors,
   HardDrive,
-  Package
+  Package,
+  Layers
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -32,6 +33,11 @@ const navigation: NavItem[] = [
     title: 'DB Instances',
     href: '/instances',
     icon: Database,
+  },
+  {
+    title: 'Batch Creates',
+    href: '/batches',
+    icon: Layers,
   },
   {
     title: 'Backup Images',

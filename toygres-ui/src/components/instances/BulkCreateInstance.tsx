@@ -13,7 +13,7 @@ export function BulkCreateInstance() {
   const { showToast } = useToast();
 
   const [baseName, setBaseName] = useState('');
-  const [count, setCount] = useState(3);
+  const [count, setCount] = useState<number | ''>(3);
   const [password, setPassword] = useState('');
   const [postgresVersion, setPostgresVersion] = useState('18');
   const [storageSize, setStorageSize] = useState(10);
@@ -43,8 +43,8 @@ export function BulkCreateInstance() {
     }) => api.bulkCreateInstances(data),
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['instances'] });
-      showToast('success', `Created ${data.count} instances successfully`);
-      navigate('/instances');
+      showToast('success', `Batch ${data.batch_id} started for ${data.count} instances`);
+      navigate(`/batches/${data.batch_id}`);
     },
     onError: (error: Error) => {
       showToast('error', `Failed to create instances: ${error.message}`);
@@ -59,8 +59,8 @@ export function BulkCreateInstance() {
       return;
     }
 
-    if (count < 1 || count > 50) {
-      showToast('error', 'Count must be between 1 and 50');
+    if (!count || count < 1 || count > 500) {
+      showToast('error', 'Count must be between 1 and 500');
       return;
     }
 
@@ -142,14 +142,17 @@ export function BulkCreateInstance() {
               <input
                 type="number"
                 value={count}
-                onChange={(e) => setCount(parseInt(e.target.value) || 1)}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setCount(val === '' ? '' : parseInt(val) || '');
+                }}
                 min="1"
-                max="50"
+                max="500"
                 className="w-full border rounded-md px-3 py-2"
                 required
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Number of instances to create (1-50)
+                Number of instances to create (1-500)
               </p>
             </div>
 

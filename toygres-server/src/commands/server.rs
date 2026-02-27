@@ -69,6 +69,9 @@ pub async fn run_standalone_mode(port: u16, _workers: usize) -> Result<()> {
     // Auto-start system pruner (singleton orchestration)
     start_system_pruner(&client).await;
 
+    // Auto-start create semaphore (singleton orchestration)
+    start_create_semaphore(&client).await;
+
     // Start API server
     tracing::info!("Starting API server on 0.0.0.0:{}", port);
     
@@ -434,6 +437,57 @@ async fn start_system_pruner(client: &std::sync::Arc<duroxide::Client>) {
         Err(e) => {
             // Don't fail server startup if pruner fails to start
             tracing::warn!("Failed to start system pruner: {}", e);
+        }
+    }
+}
+
+/// Well-known instance ID for the create semaphore singleton
+const CREATE_SEMAPHORE_INSTANCE_ID: &str = "create-semaphore";
+
+/// Start the create semaphore orchestration (singleton)
+///
+/// This orchestration runs forever, throttling concurrent create-instance operations.
+/// If it's already running, this is a no-op.
+async fn start_create_semaphore(client: &std::sync::Arc<duroxide::Client>) {
+    use toygres_orchestrations::types::SemaphoreInput;
+    use toygres_orchestrations::names::orchestrations::CREATE_SEMAPHORE;
+
+    // Check if semaphore is already running
+    match client.get_orchestration_status(CREATE_SEMAPHORE_INSTANCE_ID).await {
+        Ok(status) => {
+            if matches!(status, duroxide::OrchestrationStatus::Running { .. }) {
+                tracing::info!("Create semaphore is already running");
+                return;
+            }
+            // If it was previously completed/failed, delete it first
+            tracing::info!("Create semaphore was {:?}, deleting and restarting", status);
+            if let Err(e) = client.delete_instance(CREATE_SEMAPHORE_INSTANCE_ID, true).await {
+                tracing::warn!("Failed to delete old create semaphore: {}", e);
+            }
+        }
+        Err(_) => {
+            tracing::info!("Starting create semaphore orchestration");
+        }
+    }
+
+    let input = SemaphoreInput {
+        max_concurrent: 10,
+        active: std::collections::BTreeSet::new(),
+        waiting: std::collections::VecDeque::new(),
+        events_processed: 0,
+    };
+
+    match client.start_orchestration(
+        CREATE_SEMAPHORE_INSTANCE_ID,
+        CREATE_SEMAPHORE,
+        &serde_json::to_string(&input).unwrap(),
+    ).await {
+        Ok(_) => {
+            tracing::info!("✓ Create semaphore started (instance: {})", CREATE_SEMAPHORE_INSTANCE_ID);
+            tracing::info!("  - Max concurrent creates: {}", input.max_concurrent);
+        }
+        Err(e) => {
+            tracing::warn!("Failed to start create semaphore: {}", e);
         }
     }
 }

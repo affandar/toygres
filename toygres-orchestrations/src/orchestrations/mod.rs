@@ -5,3 +5,6 @@ pub mod system_pruner;
 pub mod flows;
 pub mod create_image;
 pub mod create_image_v1_0_1;
+pub mod create_image_v1_0_2;
+pub mod create_semaphore;
+pub mod batch_create;

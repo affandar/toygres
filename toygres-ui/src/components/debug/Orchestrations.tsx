@@ -36,6 +36,7 @@ export function Orchestrations() {
   const [historyLimit, setHistoryLimit] = useState<'full' | '5' | '10'>('full');
   const [historyView, setHistoryView] = useState<'table' | 'graph'>('table');
   const [showActiveOnly, setShowActiveOnly] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
   const [bulkActionType, setBulkActionType] = useState<'cancel' | 'recreate' | null>(null);
   const [actorsPage, setActorsPage] = useState(1);
   const [operationsPage, setOperationsPage] = useState(1);
@@ -619,13 +620,29 @@ export function Orchestrations() {
   ) || [];
 
   // Apply active-only filter if enabled
-  const instanceActors = showActiveOnly
+  const filteredInstanceActors = showActiveOnly
     ? allInstanceActors.filter(o => o.status === 'Running')
     : allInstanceActors;
   
-  const otherOrchestrations = showActiveOnly
+  const filteredOtherOrchestrations = showActiveOnly
     ? allOtherOrchestrations.filter(o => o.status === 'Running')
     : allOtherOrchestrations;
+
+  // Apply search filter
+  const lowerSearch = searchQuery.toLowerCase();
+  const instanceActors = searchQuery
+    ? filteredInstanceActors.filter(o =>
+        o.instance_id.toLowerCase().includes(lowerSearch) ||
+        o.orchestration_name.toLowerCase().includes(lowerSearch) ||
+        o.status.toLowerCase().includes(lowerSearch))
+    : filteredInstanceActors;
+
+  const otherOrchestrations = searchQuery
+    ? filteredOtherOrchestrations.filter(o =>
+        o.instance_id.toLowerCase().includes(lowerSearch) ||
+        o.orchestration_name.toLowerCase().includes(lowerSearch) ||
+        o.status.toLowerCase().includes(lowerSearch))
+    : filteredOtherOrchestrations;
 
   const OrchestrationTable = ({ 
     orchs, 
@@ -811,6 +828,17 @@ export function Orchestrations() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Search orchestrations..."
+            value={searchQuery}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setActorsPage(1);
+              setOperationsPage(1);
+            }}
+            className="text-sm border rounded px-3 py-1.5 bg-background w-64 placeholder:text-muted-foreground"
+          />
           <label htmlFor="show-active" className="text-sm text-muted-foreground">
             Show:
           </label>

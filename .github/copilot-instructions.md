@@ -224,6 +224,21 @@ Required in `.env`:
 - `DATABASE_URL` - PostgreSQL connection for CMS + Duroxide state
 - `AKS_CLUSTER_NAME`, `AKS_RESOURCE_GROUP` - Azure/K8s configuration
 
+## Updating duroxide-pg-opt Dependency
+
+When a new version of `duroxide-pg-opt` is published to crates.io (after a duroxide core update):
+
+1. **Update Cargo.toml**: Bump `duroxide-pg-opt` (and `duroxide` if it's a direct dep) in `toygres-orchestrations/Cargo.toml` and/or the workspace `Cargo.toml`
+2. **Check for API changes**: If `Provider`/`ProviderAdmin` traits changed, the runtime initialization in `toygres-server/src/main.rs` may need updates
+3. **Check orchestration registry**: If new duroxide features were added (e.g., new `OrchestrationContext` methods), existing orchestrations can use them in **new versions only** (never modify existing orchestration code)
+4. **Build**: `cargo build --workspace`
+5. **Test locally**: `cargo test --workspace`, then `./scripts/start-control-plane.sh` for integration testing
+6. **Deploy to AKS**: `./deploy/deploy-to-aks.sh --https`
+7. **Smoke test**: Verify the UI loads, create a test instance, confirm health monitoring works, delete the test instance
+
+> ⚠️ **Never deploy without explicit user permission**
+> ⚠️ **After deploy**: Watch AKS logs for errors: `kubectl logs -n toygres-system -l app.kubernetes.io/component=server -f`
+
 ## Duroxide RuntimeOptions Tuning
 
 Key settings in `toygres-server/src/main.rs` `RuntimeOptions`:

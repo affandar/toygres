@@ -9,6 +9,8 @@ import { InstanceList } from '@/components/instances/InstanceList';
 import { InstanceDetail } from '@/components/instances/InstanceDetail';
 import { CreateInstance } from '@/components/instances/CreateInstance';
 import { BulkCreateInstance } from '@/components/instances/BulkCreateInstance';
+import { BatchList } from '@/components/instances/BatchList';
+import { BatchStatus } from '@/components/instances/BatchStatus';
 import { InstanceLogsPage } from '@/components/instances/InstanceLogsPage';
 import { InstanceWorkflowsPage } from '@/components/instances/InstanceWorkflowsPage';
 import { ImageList } from '@/components/images/ImageList';
@@ -70,6 +72,10 @@ function AppRoutes() {
           <Route path=":name/logs" element={<InstanceLogsPage />} />
           <Route path=":name/workflows" element={<InstanceWorkflowsPage />} />
         </Route>
+
+        {/* Batches */}
+        <Route path="batches" element={<BatchList />} />
+        <Route path="batches/:batchId" element={<BatchStatus />} />
         
         {/* Images */}
         <Route path="images">

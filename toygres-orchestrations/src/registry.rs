@@ -3,7 +3,7 @@
 use duroxide::runtime::registry::ActivityRegistry;
 use duroxide::OrchestrationRegistry;
 use crate::activities;
-use crate::orchestrations::{create_instance, delete_instance, instance_actor, system_pruner, create_image, create_image_v1_0_1};
+use crate::orchestrations::{create_instance, delete_instance, instance_actor, system_pruner, create_image, create_image_v1_0_1, create_image_v1_0_2, create_semaphore, batch_create};
 
 /// Create an OrchestrationRegistry with all Toygres orchestrations
 ///
@@ -120,6 +120,28 @@ pub fn create_orchestration_registry() -> OrchestrationRegistry {
             create_image_v1_0_1::NAME,
             "1.0.1",
             create_image_v1_0_1::create_image_1_0_1_orchestration,
+        )
+        // v1.0.2: Deterministic replay (ctx.utc_now + get-storage-config activity)
+        .register_versioned_typed(
+            create_image_v1_0_2::NAME,
+            "1.0.2",
+            create_image_v1_0_2::create_image_1_0_2_orchestration,
+        )
+        // Create semaphore (eternal singleton for throttling creates)
+        .register_typed(
+            create_semaphore::NAME,
+            create_semaphore::create_semaphore_1_0_0_orchestration,
+        )
+        // v1.0.8: Semaphore-throttled creation
+        .register_versioned_typed(
+            create_instance::NAME,
+            "1.0.8",
+            create_instance::create_instance_1_0_8_orchestration,
+        )
+        // Batch create orchestration
+        .register_typed(
+            batch_create::NAME,
+            batch_create::batch_create_1_0_0_orchestration,
         )
         .build()
 }
@@ -252,10 +274,25 @@ pub fn create_activity_registry() -> ActivityRegistry {
             activities::send_external_event::NAME,
             activities::send_external_event::activity,
         )
+        // Event queue activities
+        .register_typed(
+            activities::enqueue_event::NAME,
+            activities::enqueue_event::activity,
+        )
         // Query execution
         .register_typed(
             activities::execute_query::NAME,
             activities::execute_query::activity,
+        )
+        // Storage config
+        .register_typed(
+            activities::get_storage_config::NAME,
+            activities::get_storage_config::activity,
+        )
+        // Batch status
+        .register_typed(
+            activities::get_batch_status::NAME,
+            activities::get_batch_status::activity,
         )
         .build()
 }

@@ -41,6 +41,8 @@ pub fn create_router(state: AppState) -> Router {
         .route("/api/instances", get(list_instances).post(create_instance))
         .route("/api/instances/bulk", post(bulk_create_instances))
         .route("/api/instances/bulk/delete", post(bulk_delete_instances))
+        .route("/api/batches", get(list_batches))
+        .route("/api/batches/:id", get(get_batch_status))
         .route("/api/instances/:name", get(get_instance).delete(delete_instance))
         .route("/api/instances/:name/stop", post(stop_instance))
         .route("/api/instances/:name/start", post(start_instance))
@@ -655,7 +657,7 @@ async fn bulk_create_instances(
     Json(req): Json<serde_json::Value>,
 ) -> Result<Json<serde_json::Value>, AppError> {
     use uuid::Uuid;
-    use toygres_orchestrations::types::CreateInstanceInput;
+    use toygres_orchestrations::types::BatchCreateInput;
     use toygres_orchestrations::activity_types::ImageType;
     
     let base_name = req.get("base_name")
@@ -664,7 +666,7 @@ async fn bulk_create_instances(
     
     let count = req.get("count")
         .and_then(|v| v.as_u64())
-        .ok_or_else(|| AppError::BadRequest("Missing count".to_string()))? as usize;
+        .ok_or_else(|| AppError::BadRequest("Missing count".to_string()))? as u32;
     
     let password = req.get("password")
         .and_then(|v| v.as_str())
@@ -695,7 +697,6 @@ async fn bulk_create_instances(
         .map(|s| s.to_string());
 
     // If a runtime image is specified, resolve it to a canonical pull ref.
-    // Runtime images are always deployed in stock mode (pg_durable is built-in only).
     let (runtime_image_id, image_override, image_type) = if let Some(runtime_image_id) = &runtime_image_id_str {
         let image_uuid = Uuid::parse_str(runtime_image_id)
             .map_err(|e| AppError::BadRequest(format!("Invalid runtime_image_id: {}", e)))?;
@@ -736,59 +737,46 @@ async fn bulk_create_instances(
         return Err(AppError::BadRequest("Invalid base name. Use only alphanumeric characters and hyphens.".to_string()));
     }
     
-    if count == 0 || count > 50 {
-        return Err(AppError::BadRequest("Count must be between 1 and 50".to_string()));
+    if count == 0 || count > 500 {
+        return Err(AppError::BadRequest("Count must be between 1 and 500".to_string()));
     }
     
     if password.len() < 8 {
         return Err(AppError::BadRequest("Password must be at least 8 characters".to_string()));
     }
     
-    let mut created_instances = Vec::new();
+    // Start a batch-create orchestration instead of individual creates
+    let batch_id = format!("batch-{}-{}", base_name, Uuid::new_v4().to_string().split('-').next().unwrap());
     
-    for i in 1..=count {
-        let user_name = format!("{}{}", base_name, i);
-        let suffix = Uuid::new_v4().to_string().split('-').next().unwrap().to_string();
-        let k8s_name = format!("{}-{}", user_name, suffix);
-        let orchestration_id = format!("create-{}", k8s_name);
-        
-        let input = CreateInstanceInput {
-            user_name: user_name.clone(),
-            name: k8s_name.clone(),
-            password: password.to_string(),
-            postgres_version: Some(postgres_version.to_string()),
-            storage_size_gb: Some(storage_size_gb),
-            use_load_balancer: Some(!internal),
-            dns_label: Some(user_name.clone()),
-            namespace: Some(namespace.to_string()),
-            orchestration_id: orchestration_id.clone(),
-            image_type: image_type.clone(),
-            source_image_id: None,
-            runtime_image_id: runtime_image_id.clone(),
-            image_override: image_override.clone(),
-        };
-        
-        state.duroxide_client
-            .start_orchestration(
-                &orchestration_id,
-                toygres_orchestrations::names::orchestrations::CREATE_INSTANCE,
-                &serde_json::to_string(&input).unwrap(),
-            )
-            .await
-            .map_err(|e| AppError::Internal(format!("Failed to start orchestration {}: {}", i, e)))?;
-        
-        created_instances.push(serde_json::json!({
-            "instance_name": user_name,
-            "k8s_name": k8s_name,
-            "orchestration_id": orchestration_id,
-            "dns_name": format!("{}.westus3.cloudapp.azure.com", user_name),
-            "image_type": image_type.as_str(),
-        }));
-    }
+    let batch_input = BatchCreateInput {
+        base_name: base_name.to_string(),
+        count,
+        password: password.to_string(),
+        postgres_version: postgres_version.to_string(),
+        storage_size_gb,
+        use_load_balancer: !internal,
+        namespace: namespace.to_string(),
+        image_type,
+        runtime_image_id,
+        image_override,
+        instances: Vec::new(),
+        polls_completed: 0,
+        errors: Vec::new(),
+    };
+    
+    state.duroxide_client
+        .start_orchestration(
+            &batch_id,
+            toygres_orchestrations::names::orchestrations::BATCH_CREATE,
+            &serde_json::to_string(&batch_input).unwrap(),
+        )
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to start batch orchestration: {}", e)))?;
     
     Ok(Json(serde_json::json!({
+        "batch_id": batch_id,
         "count": count,
-        "instances": created_instances,
+        "base_name": base_name,
     })))
 }
 
@@ -804,8 +792,8 @@ async fn bulk_delete_instances(
         .and_then(|v| v.as_array())
         .ok_or_else(|| AppError::BadRequest("Missing instance_names array".to_string()))?;
     
-    if instance_names.is_empty() || instance_names.len() > 50 {
-        return Err(AppError::BadRequest("instance_names must contain 1-50 items".to_string()));
+    if instance_names.is_empty() || instance_names.len() > 500 {
+        return Err(AppError::BadRequest("instance_names must contain 1-500 items".to_string()));
     }
     
     let db_url = std::env::var("DATABASE_URL")
@@ -941,6 +929,123 @@ async fn delete_instance(
         "k8s_name": k8s_name,
         "orchestration_id": orchestration_id,
     })))
+}
+
+// ============================================================================
+// Batch Status
+// ============================================================================
+
+async fn list_batches(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    if !state.duroxide_client.has_management_capability() {
+        return Err(AppError::Internal("Management features not available".to_string()));
+    }
+
+    let instance_ids = state.duroxide_client
+        .list_all_instances()
+        .await
+        .map_err(|e| AppError::Internal(format!("Failed to list instances: {}", e)))?;
+
+    let batch_name = toygres_orchestrations::names::orchestrations::BATCH_CREATE;
+    let mut batches = Vec::new();
+
+    for id in instance_ids.iter() {
+        if let Ok(info) = state.duroxide_client.get_instance_info(id).await {
+            if info.orchestration_name == batch_name {
+                let created_at = chrono::DateTime::<chrono::Utc>::from_timestamp_millis(info.created_at as i64)
+                    .map(|dt| dt.to_rfc3339())
+                    .unwrap_or_else(|| "unknown".to_string());
+
+                // Get custom_status for progress info
+                let progress = if let Ok(status) = state.duroxide_client.get_orchestration_status(id).await {
+                    match status {
+                        duroxide::OrchestrationStatus::Running { custom_status, .. } |
+                        duroxide::OrchestrationStatus::Completed { custom_status, .. } |
+                        duroxide::OrchestrationStatus::Failed { custom_status, .. } => {
+                            custom_status
+                                .as_deref()
+                                .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+                        }
+                        _ => None,
+                    }
+                } else {
+                    None
+                };
+
+                batches.push(serde_json::json!({
+                    "batch_id": info.instance_id,
+                    "status": info.status,
+                    "created_at": created_at,
+                    "progress": progress,
+                }));
+            }
+        }
+    }
+
+    // Sort by created_at descending
+    batches.sort_by(|a, b| {
+        let a_time = a["created_at"].as_str().unwrap_or("");
+        let b_time = b["created_at"].as_str().unwrap_or("");
+        b_time.cmp(a_time)
+    });
+
+    Ok(Json(serde_json::json!({ "batches": batches })))
+}
+
+async fn get_batch_status(
+    State(state): State<AppState>,
+    Path(batch_id): Path<String>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let status = state.duroxide_client.get_orchestration_status(&batch_id).await
+        .map_err(|e| AppError::Internal(format!("Failed to get batch status: {}", e)))?;
+
+    match status {
+        duroxide::OrchestrationStatus::Running { custom_status, .. } => {
+            // Parse the JSON custom_status into a value
+            let batch_status: serde_json::Value = custom_status
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!({"total": 0, "completed": 0, "failed": 0, "creating": 0, "errors": []}));
+
+            Ok(Json(serde_json::json!({
+                "batch_id": batch_id,
+                "status": "Running",
+                "progress": batch_status,
+            })))
+        }
+        duroxide::OrchestrationStatus::Completed { output, custom_status, .. } => {
+            let batch_output: serde_json::Value = serde_json::from_str(&output)
+                .unwrap_or(serde_json::json!({}));
+            let batch_status: serde_json::Value = custom_status
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!({}));
+
+            Ok(Json(serde_json::json!({
+                "batch_id": batch_id,
+                "status": "Completed",
+                "progress": batch_status,
+                "output": batch_output,
+            })))
+        }
+        duroxide::OrchestrationStatus::Failed { details, custom_status, .. } => {
+            let batch_status: serde_json::Value = custom_status
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or(serde_json::json!({}));
+
+            Ok(Json(serde_json::json!({
+                "batch_id": batch_id,
+                "status": "Failed",
+                "progress": batch_status,
+                "error": details.display_message(),
+            })))
+        }
+        duroxide::OrchestrationStatus::NotFound => {
+            Err(AppError::NotFound(format!("Batch '{}' not found", batch_id)))
+        }
+    }
 }
 
 // ============================================================================

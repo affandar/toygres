@@ -361,18 +361,46 @@ export const api = {
     image_type?: string;
     runtime_image_id?: string;
   }): Promise<{
+    batch_id: string;
     count: number;
-    instances: Array<{
-      instance_name: string;
-      k8s_name: string;
-      orchestration_id: string;
-      dns_name: string;
-    }>;
+    base_name: string;
   }> {
     return fetchJson(`${API_BASE}/api/instances/bulk`, {
       method: 'POST',
       body: JSON.stringify(data),
     });
+  },
+
+  async getBatchStatus(batchId: string): Promise<{
+    batch_id: string;
+    status: string;
+    progress: {
+      total: number;
+      completed: number;
+      failed: number;
+      creating: number;
+      errors: Array<{ instance: string; error: string }>;
+    };
+    output?: unknown;
+    error?: string;
+  }> {
+    return fetchJson(`${API_BASE}/api/batches/${encodeURIComponent(batchId)}`);
+  },
+
+  async listBatches(): Promise<{
+    batches: Array<{
+      batch_id: string;
+      status: string;
+      created_at: string;
+      progress?: {
+        total: number;
+        completed: number;
+        failed: number;
+        creating: number;
+      };
+    }>;
+  }> {
+    return fetchJson(`${API_BASE}/api/batches`);
   },
 
   async bulkDeleteInstances(instance_names: string[]): Promise<{
