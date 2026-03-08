@@ -14,8 +14,8 @@ license = "MIT"
 
 [workspace.dependencies]
 # Duroxide framework (from crates.io)
-duroxide = { version = "=0.1.22" }
-duroxide-pg = { version = "=0.1.23" }
+duroxide = { version = "=0.1.23" }
+duroxide-pg = { version = "=0.1.24" }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
@@ -57,6 +57,5 @@ chrono = { version = "0.4", features = ["serde"] }
 # UUID
 uuid = { version = "1.0", features = ["v4", "serde"] }
 
-[patch.crates-io]
-duroxide-pg = { path = "../providers/duroxide-pg" }
+
 
