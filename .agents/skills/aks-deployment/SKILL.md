@@ -122,3 +122,54 @@ for attempt in 1..=24 {
 }
 ```
 
+## Smoke Test
+
+After a deploy, run this end-to-end smoke test to verify the control plane works:
+
+```bash
+BASE="https://toygres-aks-ui.westus3.cloudapp.azure.com"
+
+# 1. Login (POST with form data — NOT a GET query param)
+COOKIE=$(curl -sk -D- -o/dev/null -X POST "$BASE/login" \
+  -H "Content-Type: application/x-www-form-urlencoded" \
+  -d "username=admin&password=toygres2025" 2>&1 | grep -i set-cookie | head -1)
+SESSION="toygres_session=authenticated_toygres_admin_session"
+
+# 2. Health check
+curl -sk -b "$SESSION" "$BASE/api/health"
+
+# 3. Create test instance (password field is required)
+SMOKE="smoke$(date +%m%d%H%M%S)"
+curl -sk -b "$SESSION" -X POST "$BASE/api/instances" \
+  -H "Content-Type: application/json" \
+  -d "{\"name\": \"$SMOKE\", \"password\": \"smoketest123\"}"
+
+# 4. Poll for running + healthy (takes 1-3 minutes)
+for i in $(seq 1 36); do
+  sleep 10
+  STATE=$(curl -sk -b "$SESSION" "$BASE/api/instances" 2>/dev/null | \
+    python3 -c "import json,sys; d=json.load(sys.stdin); m=[i for i in d if i.get('user_name')=='$SMOKE']; print(json.dumps({'state':m[0].get('state','?'),'healthy':m[0].get('health_status')}) if m else 'not_found')" 2>/dev/null)
+  echo "attempt $i: $STATE"
+  echo "$STATE" | grep -q '"healthy": "healthy"' && echo "SUCCESS!" && break
+done
+
+# 5. Delete test instance (use user_name, not k8s_name)
+curl -sk -b "$SESSION" -X DELETE "$BASE/api/instances/$SMOKE"
+
+# 6. Wait for deletion
+for i in 1 2 3 4 5 6; do
+  sleep 10
+  GONE=$(curl -sk -b "$SESSION" "$BASE/api/instances" 2>/dev/null | \
+    python3 -c "import json,sys; d=json.load(sys.stdin); print('gone' if not [i for i in d if i.get('user_name')=='$SMOKE'] else 'still_there')" 2>/dev/null)
+  echo "$GONE"
+  [ "$GONE" = "gone" ] && echo "Cleanup complete!" && break
+done
+```
+
+**Common issues:**
+- Login is `POST /login` with `Content-Type: application/x-www-form-urlencoded` and fields `username` + `password`. A GET to `/login` returns the HTML form page.
+- Create instance requires a `password` field in the JSON body (not just `name`).
+- Delete uses the `user_name` (e.g., `smoke0314044056`), not the `k8s_name` (e.g., `smoke0314044056-1854238c`).
+- Health status may stay `null` for several minutes while the instance actor starts its first health check cycle. With 291+ existing actors, worker capacity is heavily loaded.
+- Credentials: `TOYGRES_ADMIN_USERNAME=admin`, `TOYGRES_ADMIN_PASSWORD=toygres2025`
+
