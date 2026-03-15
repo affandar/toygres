@@ -13,9 +13,9 @@ authors = ["Affan Dar"]
 license = "MIT"
 
 [workspace.dependencies]
-# Duroxide framework (from crates.io)
-duroxide = { version = "=0.1.25" }
-duroxide-pg = "0.1.26"
+# Duroxide framework
+duroxide = { version = "=0.1.26" }
+duroxide-pg = { package = "duroxide-pg-opt", git = "https://github.com/microsoft/duroxide-pg-opt", tag = "v0.1.23" }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
