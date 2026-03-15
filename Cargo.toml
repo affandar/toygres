@@ -15,7 +15,7 @@ license = "MIT"
 [workspace.dependencies]
 # Duroxide framework
 duroxide = { version = "=0.1.26" }
-duroxide-pg = { package = "duroxide-pg-opt", git = "https://github.com/microsoft/duroxide-pg-opt", tag = "v0.1.23" }
+duroxide-pg = { version = "=0.1.27" }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
