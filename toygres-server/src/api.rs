@@ -2202,6 +2202,8 @@ async fn get_orchestration(
         }
     }
     
+    let stats = state.duroxide_client.get_orchestration_stats(&id).await.ok().flatten();
+
     Ok(Json(serde_json::json!({
         "instance_id": info.instance_id,
         "orchestration_name": info.orchestration_name,
@@ -2213,6 +2215,13 @@ async fn get_orchestration(
         "output": output,
         "custom_status": custom_status,
         "history": history,
+        "stats": stats.map(|s| serde_json::json!({
+            "history_event_count": s.history_event_count,
+            "history_size_bytes": s.history_size_bytes,
+            "queue_pending_count": s.queue_pending_count,
+            "kv_user_key_count": s.kv_user_key_count,
+            "kv_total_value_bytes": s.kv_total_value_bytes,
+        })),
     })))
 }
 
