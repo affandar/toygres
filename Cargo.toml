@@ -14,8 +14,8 @@ license = "MIT"
 
 [workspace.dependencies]
 # Duroxide framework
-duroxide = { version = "=0.1.26" }
-duroxide-pg = { version = "=0.1.27" }
+duroxide = { version = "=0.1.27" }
+duroxide-pg = { version = "=0.1.28" }
 
 # Async runtime
 tokio = { version = "1.0", features = ["full"] }
@@ -56,7 +56,6 @@ chrono = { version = "0.4", features = ["serde"] }
 
 # UUID
 uuid = { version = "1.0", features = ["v4", "serde"] }
-
 
 
 
