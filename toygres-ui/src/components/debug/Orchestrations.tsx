@@ -5,7 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { useToast } from '@/lib/toast';
 import { api } from '@/lib/api';
-import { formatRelativeTime, getStatusIcon } from '@/lib/utils';
+import { formatRelativeTime, getStatusIcon, formatBytes } from '@/lib/utils';
 import mermaid from 'mermaid';
 
 // Initialize mermaid
@@ -1064,6 +1064,31 @@ export function Orchestrations() {
                 <p className="text-sm">{formatRelativeTime(orchDetail.created_at)}</p>
               </div>
             </div>
+
+            {orchDetail.stats && (
+              <div className="grid grid-cols-5 gap-3">
+                <div className="text-center p-3 bg-muted/50 rounded-md">
+                  <p className="text-xs text-muted-foreground">History Events</p>
+                  <p className="text-lg font-bold">{orchDetail.stats.history_event_count.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-3 bg-muted/50 rounded-md">
+                  <p className="text-xs text-muted-foreground">History Size</p>
+                  <p className="text-lg font-bold">{formatBytes(orchDetail.stats.history_size_bytes)}</p>
+                </div>
+                <div className="text-center p-3 bg-muted/50 rounded-md">
+                  <p className="text-xs text-muted-foreground">Queue Pending</p>
+                  <p className="text-lg font-bold">{orchDetail.stats.queue_pending_count.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-3 bg-muted/50 rounded-md">
+                  <p className="text-xs text-muted-foreground">KV Keys</p>
+                  <p className="text-lg font-bold">{orchDetail.stats.kv_user_key_count.toLocaleString()}</p>
+                </div>
+                <div className="text-center p-3 bg-muted/50 rounded-md">
+                  <p className="text-xs text-muted-foreground">KV Size</p>
+                  <p className="text-lg font-bold">{formatBytes(orchDetail.stats.kv_total_value_bytes)}</p>
+                </div>
+              </div>
+            )}
 
             {orchDetail.output && (
               <div>

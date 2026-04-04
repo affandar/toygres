@@ -87,6 +87,14 @@ export interface QueryResult {
   error?: string;
 }
 
+export interface OrchestrationStats {
+  history_event_count: number;
+  history_size_bytes: number;
+  queue_pending_count: number;
+  kv_user_key_count: number;
+  kv_total_value_bytes: number;
+}
+
 export interface Orchestration {
   instance_id: string;
   orchestration_name: string;
@@ -98,6 +106,7 @@ export interface Orchestration {
   output?: string;
   custom_status?: string;
   history?: OrchestrationEvent[];
+  stats?: OrchestrationStats | null;
 }
 
 export interface OrchestrationEvent {
